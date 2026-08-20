@@ -13,6 +13,10 @@ from collections import Counter
 
 import ftfy
 
+# Glyphs some PDFs use in place of ASCII punctuation (seen in Indian
+# government gazette PDFs: ‖ for closing quote, ― for dash).
+_CHAR_MAP = str.maketrans({"‖": '"', "―": "-", "‗": "_"})
+
 _WS_RE = re.compile(r"[ \t]+")
 _MULTI_BLANK_RE = re.compile(r"\n{3,}")
 _HYPHEN_BREAK_RE = re.compile(r"(\w)-\n(\w)")
@@ -22,6 +26,7 @@ _DOT_LEADER_RE = re.compile(r"\.{4,}\s*\d+\s*$")
 def normalize_text(text: str) -> str:
     """Unicode + whitespace normalization for a block of prose."""
     text = ftfy.fix_text(text, normalization="NFKC")
+    text = text.translate(_CHAR_MAP)
     text = _HYPHEN_BREAK_RE.sub(r"\1\2", text)
     text = _WS_RE.sub(" ", text)
     return text.strip()

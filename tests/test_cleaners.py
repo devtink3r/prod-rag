@@ -11,6 +11,7 @@ def test_normalize_text_fixes_unicode_and_hyphenation():
     assert normalize_text("infor-\nmation") == "information"
     assert normalize_text("â€œquoteâ€") == '"quote"'
     assert normalize_text("a   b\t c") == "a b c"
+    assert normalize_text("‖Form‖ means") == '"Form" means'
 
 
 def test_normalize_markdown_preserves_tables_and_code():
