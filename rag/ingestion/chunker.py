@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from rag.config import Config
-from rag.ingestion.cleaners import is_toc_line, normalize_text
+from rag.ingestion.cleaners import is_toc_line, normalize_table_markdown, normalize_text
 from rag.ingestion.models import Chunk, ParsedDoc
 
 RULE_RE = re.compile(r"^(\d{1,3})\.\s+(?=[A-Z])")
@@ -110,6 +110,7 @@ def build_sections(doc, doc_title: str) -> list[Section]:
                 md = item.export_to_markdown(doc=doc)
             except TypeError:
                 md = item.export_to_markdown()
+            md = normalize_table_markdown(md)
             if md.strip():
                 current.blocks.append(Block(md.strip(), is_table=True, pages=_pages_of(item)))
             continue

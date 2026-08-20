@@ -32,6 +32,13 @@ def normalize_text(text: str) -> str:
     return text.strip()
 
 
+def normalize_table_markdown(md: str) -> str:
+    """Unicode/glyph fixes for table markdown without touching structure
+    (no whitespace collapse — pipes and newlines stay exactly as exported)."""
+    md = ftfy.fix_text(md, normalization="NFKC")
+    return md.translate(_CHAR_MAP)
+
+
 def normalize_markdown(md: str) -> str:
     """String-level cleanup of exported markdown, skipping tables/code."""
     out: list[str] = []

@@ -23,6 +23,16 @@ def test_normalize_markdown_preserves_tables_and_code():
     assert "\n\n\n" not in out
 
 
+def test_table_markdown_normalized_without_breaking_structure():
+    from rag.ingestion.cleaners import normalize_table_markdown
+
+    md = "| ‖Form‖   | value―x |\n|---|---|\n| a | b |"
+    out = normalize_table_markdown(md)
+    assert '"Form"' in out and "value-x" in out
+    assert out.count("|") == md.count("|")
+    assert out.count("\n") == md.count("\n")
+
+
 def test_toc_line_detection():
     assert is_toc_line("Chapter 2 .......... 41")
     assert not is_toc_line("Normal sentence ending. 41 rules apply")
