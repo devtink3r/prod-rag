@@ -10,3 +10,4 @@ qdrant_storage/
 pg_data/
 data/docs/*
 !data/docs/.gitkeep
+/*.pdf
