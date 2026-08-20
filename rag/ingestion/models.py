@@ -14,6 +14,24 @@ class ParseStats(BaseModel):
     boilerplate_lines_removed: int = 0
 
 
+class Chunk(BaseModel):
+    """A retrieval unit. Children (~512 tok) are embedded and searched;
+    parents (~2048 tok) are what the LLM reads after retrieval."""
+
+    chunk_id: str
+    doc_id: str
+    parent_id: str | None = None
+    kind: str = "child"  # child | parent
+    text: str
+    embed_text: str = ""  # breadcrumb + contextual summary + text
+    section_path: list[str] = Field(default_factory=list)
+    element_type: str = "text"  # text | table
+    page_start: int | None = None
+    page_end: int | None = None
+    token_count: int = 0
+    seq: int = 0  # order within document
+
+
 class ParsedDoc(BaseModel):
     """One document after parsing + cleaning.
 

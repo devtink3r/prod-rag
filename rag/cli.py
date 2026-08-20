@@ -47,6 +47,62 @@ def parse(
 
 
 @app.command()
+def chunk(
+    file: str = typer.Argument(help="Path to a document"),
+    max_pages: int = typer.Option(0, help="Parse only first N pages (0 = all)"),
+    enrich: bool = typer.Option(False, help="Add LLM contextual summaries (needs API key)"),
+    show: int = typer.Option(2, help="Print first N chunks"),
+) -> None:
+    """Parse (cache-aware) + chunk one document; inspect results (phase 3 debug)."""
+    import json as _json
+    from pathlib import Path
+
+    from rag.config import load_secrets
+    from rag.ingestion.chunker import chunk_document
+    from rag.ingestion.enrichment import add_contextual_summaries
+    from rag.ingestion.parser import compute_doc_id, parse_file
+
+    cfg = load_config()
+    path = Path(file).resolve()
+    doc_id = compute_doc_id(path)
+    cached = cfg.resolve_path(cfg.paths.cache_dir) / "parsed" / f"{doc_id}.json"
+    if cached.exists():
+        from rag.ingestion.models import ParsedDoc
+
+        console.print(f"Using cached parse {cached.name}")
+        parsed = ParsedDoc(
+            doc_id=doc_id, source_path=path, doc_type=path.suffix.lstrip("."),
+            title=path.stem, docling_json_path=cached,
+        )
+    else:
+        parsed = parse_file(path, cfg, max_pages=max_pages or None)
+
+    children, parents = chunk_document(parsed, cfg)
+    if enrich:
+        n = add_contextual_summaries(children, parsed.markdown, cfg, load_secrets())
+        console.print(f"Enriched {n} chunks")
+
+    toks = [c.token_count for c in children]
+    console.print({
+        "children": len(children), "parents": len(parents),
+        "avg_tokens": sum(toks) // max(1, len(toks)),
+        "max_tokens": max(toks, default=0),
+        "table_chunks": sum(1 for c in children if c.element_type == "table"),
+        "sections": len({tuple(c.section_path) for c in children}),
+    })
+    out = cfg.resolve_path(cfg.paths.cache_dir) / "chunks" / f"{doc_id}.jsonl"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with out.open("w", encoding="utf-8") as f:
+        for c in [*children, *parents]:
+            f.write(_json.dumps(c.model_dump(mode="json")) + "\n")
+    console.print(f"Chunks written: {out}")
+    for c in children[:show]:
+        console.rule(f"[cyan]{c.chunk_id} ({c.token_count} tok, p.{c.page_start}-{c.page_end})")
+        console.print(" > ".join(c.section_path) or "(no section)", style="dim")
+        console.print(c.text[:400] + ("..." if len(c.text) > 400 else ""))
+
+
+@app.command()
 def ingest(
     dry_run: bool = typer.Option(False, help="Report changes without indexing"),
 ) -> None:
