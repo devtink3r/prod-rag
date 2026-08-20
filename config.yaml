@@ -1,0 +1,55 @@
+# All tunables live here. Secrets live in .env (never here).
+
+paths:
+  source_dir: data/docs          # documents to ingest
+  cache_dir: .cache              # parse/transform cache
+
+ingestion:
+  include_patterns: ["**/*.pdf", "**/*.docx", "**/*.pptx", "**/*.xlsx", "**/*.html", "**/*.md"]
+  workers: 2                     # parallel doc processing (Docling is CPU-bound)
+  pipeline_version: 1            # bump to force full re-index
+
+cleaning:
+  boilerplate_page_frequency: 0.6   # line on >60% of pages = header/footer
+  min_doc_words: 50
+  near_duplicate_threshold: 0.9     # MinHash jaccard
+
+chunking:
+  target_tokens: 512
+  max_tokens: 1024
+  min_tokens: 100                # merge chunks below this
+  forced_split_overlap: 50
+  parent_tokens: 2048
+  contextual_summaries: true     # LLM-written chunk context (Anthropic-style)
+
+embedding:
+  model: BAAI/bge-m3             # dense + sparse in one pass
+  device: auto                   # cpu | cuda | auto
+  batch_size: 8
+  max_length: 8192
+
+vector_store:
+  collection: rag_chunks
+  url: http://localhost:6333
+
+registry:
+  # Postgres for doc registry + chat sessions. DSN in .env (RAG_POSTGRES_DSN).
+  schema: rag
+
+retrieval:
+  fused_top_k: 30                # hybrid candidates before rerank
+  rerank_top_n: 8
+  reranker_model: BAAI/bge-reranker-v2-m3
+  rerank_score_floor: 0.15       # below this -> "no relevant docs" path
+  context_token_budget: 10000
+
+llm:
+  # via OpenRouter (key in .env: RAG_OPENROUTER_API_KEY)
+  answer_model: deepseek/deepseek-chat
+  utility_model: mistralai/mistral-small-3.2-24b-instruct
+  temperature: 0.1
+  max_tokens: 2048
+
+api:
+  host: 0.0.0.0
+  port: 8000

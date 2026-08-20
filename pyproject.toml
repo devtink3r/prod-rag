@@ -1,0 +1,41 @@
+[project]
+name = "prod-rag"
+version = "0.1.0"
+description = "Enterprise RAG: Docling + LlamaIndex + BGE-M3 + Qdrant + OpenRouter"
+readme = "README.md"
+requires-python = ">=3.10,<3.14"
+dependencies = [
+    "typer>=0.15",
+    "rich>=13.9",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "pyyaml>=6.0",
+    "docling>=2.40",
+    "ftfy>=6.3",
+]
+
+[project.scripts]
+rag = "rag.cli:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+]
+
+[tool.uv]
+# CPU-only torch: keeps installs ~2GB lighter. Remove this block for GPU.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["rag"]
