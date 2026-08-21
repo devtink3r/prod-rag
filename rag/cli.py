@@ -105,10 +105,19 @@ def chunk(
 @app.command()
 def ingest(
     dry_run: bool = typer.Option(False, help="Report changes without indexing"),
+    max_pages: int = typer.Option(0, help="Parse only first N pages per doc (testing)"),
 ) -> None:
-    """Run the ingestion pipeline (phase 2+)."""
-    console.print("[yellow]Not implemented yet — arrives in phase 2-4.[/yellow]")
-    raise typer.Exit(1)
+    """Incrementally ingest data/docs into Qdrant + registry."""
+    from rag.config import load_secrets
+    from rag.ingestion.pipeline import run_ingest
+
+    report = run_ingest(
+        load_config(), load_secrets(), dry_run=dry_run,
+        max_pages=max_pages or None, progress=console.print,
+    )
+    console.print(report)
+    if report.failed:
+        raise typer.Exit(1)
 
 
 @app.command()
