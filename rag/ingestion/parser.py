@@ -75,14 +75,61 @@ def _strip_boilerplate(doc, frequency: float) -> int:
     return len(to_delete)
 
 
-def parse_file(path: Path, cfg: Config, max_pages: int | None = None) -> ParsedDoc:
+SEGMENT_PAGES = 40  # PDF pages per conversion segment (for progress reporting)
+
+
+def _segments(total: int, size: int) -> list[tuple[int, int]]:
+    return [(s, min(s + size - 1, total)) for s in range(1, total + 1, size)]
+
+
+def _pdf_page_count(path: Path) -> int:
+    import pypdfium2 as pdfium
+
+    pdf = pdfium.PdfDocument(str(path))
+    try:
+        return len(pdf)
+    finally:
+        pdf.close()
+
+
+def _convert(path: Path, max_pages: int | None, progress) -> tuple[object, list[str]]:
+    """Convert a file; PDFs are parsed in page segments so progress is visible.
+    Returns (DoclingDocument, warnings)."""
+    conv = _get_converter()
+    if path.suffix.lower() != ".pdf":
+        result = conv.convert(str(path))
+        return result.document, [str(e.error_message) for e in result.errors]
+
+    total = _pdf_page_count(path)
+    if max_pages:
+        total = min(total, max_pages)
+    warnings: list[str] = []
+    try:
+        from docling_core.types.doc.document import DoclingDocument
+
+        docs = []
+        for start, end in _segments(total, SEGMENT_PAGES):
+            t = time.time()
+            result = conv.convert(str(path), page_range=(start, end))
+            docs.append(result.document)
+            warnings += [str(e.error_message) for e in result.errors]
+            progress(f"  parsed pages {start}-{end}/{total} ({time.time() - t:.0f}s)")
+        doc = docs[0] if len(docs) == 1 else DoclingDocument.concatenate(docs)
+        return doc, warnings
+    except Exception as exc:  # segmented path failed -> single shot
+        progress(f"  segmented parse failed ({exc}); falling back to single pass")
+        result = conv.convert(str(path), page_range=(1, total))
+        return result.document, [str(e.error_message) for e in result.errors]
+
+
+def parse_file(
+    path: Path, cfg: Config, max_pages: int | None = None, progress=lambda msg: None
+) -> ParsedDoc:
     from docling_core.types.doc.document import SectionHeaderItem, TableItem
 
     t0 = time.time()
     doc_id = compute_doc_id(path)
-    kwargs = {"page_range": (1, max_pages)} if max_pages else {}
-    result = _get_converter().convert(str(path), **kwargs)
-    doc = result.document
+    doc, conv_warnings = _convert(path, max_pages, progress)
 
     removed = _strip_boilerplate(doc, cfg.cleaning.boilerplate_page_frequency)
 
@@ -100,7 +147,7 @@ def parse_file(path: Path, cfg: Config, max_pages: int | None = None) -> ParsedD
 
     markdown = normalize_markdown(doc.export_to_markdown())
 
-    warnings = [str(e.error_message) for e in getattr(result, "errors", [])][:10]
+    warnings = conv_warnings[:10]
     return ParsedDoc(
         doc_id=doc_id,
         source_path=path,

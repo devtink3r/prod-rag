@@ -105,7 +105,7 @@ def run_ingest(
         old = old_entries.get(str(path))
         try:
             progress(f"parsing {path.name} ...")
-            parsed = parse_file(path, cfg, max_pages=max_pages)
+            parsed = parse_file(path, cfg, max_pages=max_pages, progress=progress)
             children, parents = chunk_document(parsed, cfg)
             enriched = add_contextual_summaries(children, parsed.markdown, cfg, secrets)
             if enriched:

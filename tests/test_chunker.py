@@ -16,6 +16,14 @@ def test_rule_title_detection():
     assert rule_title_of("12. Definitions. In these rules") == "Rule 12: Definitions"
 
 
+def test_parse_segments():
+    from rag.ingestion.parser import _segments
+
+    assert _segments(331, 40) == [(1, 40), (41, 80), (81, 120), (121, 160), (161, 200),
+                                  (201, 240), (241, 280), (281, 320), (321, 331)]
+    assert _segments(20, 40) == [(1, 20)]
+
+
 def test_token_counter_fallback():
     tc = TokenCounter("nonexistent/model")
     assert tc.count("x" * 400) == 100

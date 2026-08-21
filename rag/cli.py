@@ -34,7 +34,7 @@ def parse(
         raise typer.Exit(1)
     limit = f" (first {max_pages} pages)" if max_pages else ""
     console.print(f"Parsing [bold]{path.name}[/bold]{limit} ...")
-    doc = parse_file(path, cfg, max_pages=max_pages or None)
+    doc = parse_file(path, cfg, max_pages=max_pages or None, progress=console.print)
     console.print(doc.stats.model_dump())
     if doc.warnings:
         console.print(f"[yellow]{len(doc.warnings)} warnings[/yellow]", doc.warnings[:3])
