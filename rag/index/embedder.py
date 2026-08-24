@@ -18,6 +18,9 @@ class Embedding:
 
 class BgeM3Embedder:
     def __init__(self, cfg: EmbeddingConfig):
+        from rag.config import export_hf_token
+
+        export_hf_token()
         from FlagEmbedding import BGEM3FlagModel
 
         device = None if cfg.device == "auto" else cfg.device

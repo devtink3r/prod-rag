@@ -31,6 +31,9 @@ def compute_doc_id(path: Path) -> str:
 def _get_converter():
     global _converter
     if _converter is None:
+        from rag.config import export_hf_token
+
+        export_hf_token()
         from docling.datamodel.base_models import InputFormat
         from docling.datamodel.pipeline_options import PdfPipelineOptions
         from docling.document_converter import DocumentConverter, PdfFormatOption

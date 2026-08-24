@@ -3,8 +3,10 @@
 from functools import lru_cache
 from pathlib import Path
 
+import os
+
 import yaml
-from pydantic import BaseModel
+from pydantic import AliasChoices, BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -80,6 +82,8 @@ class Secrets(BaseSettings):
     openrouter_api_key: str = ""
     postgres_dsn: str = "postgresql://rag:rag@localhost:5433/rag"
     api_key: str = ""
+    # accepts either RAG_HF_TOKEN or plain HF_TOKEN in .env / environment
+    hf_token: str = Field("", validation_alias=AliasChoices("RAG_HF_TOKEN", "HF_TOKEN"))
 
     model_config = SettingsConfigDict(
         env_prefix="RAG_", env_file=PROJECT_ROOT / ".env", extra="ignore"
@@ -114,3 +118,10 @@ def load_config(path: Path | None = None) -> Config:
 @lru_cache
 def load_secrets() -> Secrets:
     return Secrets()
+
+
+def export_hf_token() -> None:
+    """Expose the HF token to huggingface_hub for authenticated downloads."""
+    token = load_secrets().hf_token
+    if token:
+        os.environ.setdefault("HF_TOKEN", token)
