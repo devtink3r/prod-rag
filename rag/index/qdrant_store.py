@@ -10,11 +10,14 @@ from rag.ingestion.models import Chunk
 
 
 class QdrantStore:
+    UPSERT_BATCH = 256  # points per request (REST payload limit is 32MB)
+
     def __init__(self, cfg: VectorStoreConfig):
         from qdrant_client import QdrantClient
 
         self.cfg = cfg
-        self.client = QdrantClient(url=cfg.url, timeout=30)
+        # prefer_grpc: faster bulk upserts, no 32MB REST payload limit
+        self.client = QdrantClient(url=cfg.url, prefer_grpc=True, timeout=60)
 
     def ensure_collection(self, embedding_model: str, pipeline_version: int) -> None:
         from qdrant_client import models as qm
@@ -33,7 +36,10 @@ class QdrantStore:
             self.cfg.collection, "doc_type", qm.PayloadSchemaType.KEYWORD
         )
 
-    def upsert_chunks(self, chunks: list[Chunk], embeddings: list[Embedding], extra: dict) -> None:
+    def upsert_chunks(
+        self, chunks: list[Chunk], embeddings: list[Embedding], extra: dict,
+        progress=lambda msg: None,
+    ) -> None:
         import uuid
 
         from qdrant_client import models as qm
@@ -64,7 +70,10 @@ class QdrantStore:
                     payload=payload,
                 )
             )
-        self.client.upsert(self.cfg.collection, points=points, wait=True)
+        for i in range(0, len(points), self.UPSERT_BATCH):
+            batch = points[i : i + self.UPSERT_BATCH]
+            self.client.upsert(self.cfg.collection, points=batch, wait=True)
+            progress(f"  upserted {min(i + len(batch), len(points))}/{len(points)} points")
 
     def delete_doc(self, doc_id: str) -> None:
         from qdrant_client import models as qm

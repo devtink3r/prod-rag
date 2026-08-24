@@ -5,12 +5,29 @@ parse -> chunk -> enrich -> embed -> upsert Qdrant + parents -> registry.
 Per-document isolation: one bad file never fails the batch.
 """
 
+import hashlib
+import pickle
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
 from rag.config import Config, Secrets
 from rag.index.registry import RegistryEntry
+
+
+def _embed_with_cache(embedder_factory, texts: list[str], cache_dir: Path,
+                      doc_id: str, model: str, progress) -> list:
+    """Embeddings are expensive (an hour of CPU for a big doc); cache them
+    keyed by content so a failure later in the pipeline never recomputes."""
+    key = hashlib.sha256(("\x00".join(texts) + model).encode()).hexdigest()[:16]
+    cache = cache_dir / "embeddings" / f"{doc_id}.{key}.pkl"
+    if cache.exists():
+        progress(f"  using cached embeddings {cache.name}")
+        return pickle.loads(cache.read_bytes())
+    embeddings = embedder_factory().encode(texts)
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    cache.write_bytes(pickle.dumps(embeddings))
+    return embeddings
 
 
 @dataclass
@@ -110,11 +127,19 @@ def run_ingest(
             enriched = add_contextual_summaries(children, parsed.markdown, cfg, secrets)
             if enriched:
                 progress(f"  enriched {enriched}/{len(children)} chunks")
-            if embedder is None:
-                progress(f"loading embedding model {cfg.embedding.model} ...")
-                embedder = BgeM3Embedder(cfg.embedding)
+            def get_embedder():
+                nonlocal embedder
+                if embedder is None:
+                    progress(f"loading embedding model {cfg.embedding.model} ...")
+                    embedder = BgeM3Embedder(cfg.embedding)
+                return embedder
+
             progress(f"  embedding {len(children)} chunks ...")
-            embeddings = embedder.encode([c.embed_text for c in children])
+            embeddings = _embed_with_cache(
+                get_embedder, [c.embed_text for c in children],
+                cfg.resolve_path(cfg.paths.cache_dir), parsed.doc_id,
+                cfg.embedding.model, progress,
+            )
 
             if old:  # remove the previous version's points first
                 store.delete_doc(old.doc_id)
@@ -127,6 +152,7 @@ def run_ingest(
                     "doc_type": parsed.doc_type,
                     "pipeline_version": cfg.ingestion.pipeline_version,
                 },
+                progress=progress,
             )
             registry.replace_parents(old.doc_id if old else None, parents)
             registry.mark(
