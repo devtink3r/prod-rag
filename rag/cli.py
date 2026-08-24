@@ -1,6 +1,11 @@
 """rag CLI — entry points for ingestion, retrieval, eval, and serving."""
 
+import warnings
+
 import typer
+
+# docling emits noisy-but-harmless bbox clamping warnings on some PDFs
+warnings.filterwarnings("ignore", message=".*outside page bounds.*")
 from rich.console import Console
 
 from rag.config import load_config
@@ -60,22 +65,11 @@ def chunk(
     from rag.config import load_secrets
     from rag.ingestion.chunker import chunk_document
     from rag.ingestion.enrichment import add_contextual_summaries
-    from rag.ingestion.parser import compute_doc_id, parse_file
+    from rag.ingestion.parser import parse_file
 
     cfg = load_config()
     path = Path(file).resolve()
-    doc_id = compute_doc_id(path)
-    cached = cfg.resolve_path(cfg.paths.cache_dir) / "parsed" / f"{doc_id}.json"
-    if cached.exists():
-        from rag.ingestion.models import ParsedDoc
-
-        console.print(f"Using cached parse {cached.name}")
-        parsed = ParsedDoc(
-            doc_id=doc_id, source_path=path, doc_type=path.suffix.lstrip("."),
-            title=path.stem, docling_json_path=cached,
-        )
-    else:
-        parsed = parse_file(path, cfg, max_pages=max_pages or None)
+    parsed = parse_file(path, cfg, max_pages=max_pages or None, progress=console.print)
 
     children, parents = chunk_document(parsed, cfg)
     if enrich:
@@ -90,7 +84,7 @@ def chunk(
         "table_chunks": sum(1 for c in children if c.element_type == "table"),
         "sections": len({tuple(c.section_path) for c in children}),
     })
-    out = cfg.resolve_path(cfg.paths.cache_dir) / "chunks" / f"{doc_id}.jsonl"
+    out = cfg.resolve_path(cfg.paths.cache_dir) / "chunks" / f"{parsed.doc_id}.jsonl"
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("w", encoding="utf-8") as f:
         for c in [*children, *parents]:

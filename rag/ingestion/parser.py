@@ -129,9 +129,24 @@ def parse_file(
 
     t0 = time.time()
     doc_id = compute_doc_id(path)
-    doc, conv_warnings = _convert(path, max_pages, progress)
 
-    removed = _strip_boilerplate(doc, cfg.cleaning.boilerplate_page_frequency)
+    cache_dir = cfg.resolve_path(cfg.paths.cache_dir) / "parsed"
+    # partial parses get their own cache key so they never poison full runs
+    suffix = f".p{max_pages}" if max_pages else ""
+    json_path = cache_dir / f"{doc_id}{suffix}.json"
+
+    if json_path.exists():
+        progress(f"  using cached parse {json_path.name}")
+        from docling_core.types.doc.document import DoclingDocument
+
+        doc = DoclingDocument.model_validate(json.loads(json_path.read_text()))
+        conv_warnings: list[str] = []
+        removed = 0
+    else:
+        doc, conv_warnings = _convert(path, max_pages, progress)
+        removed = _strip_boilerplate(doc, cfg.cleaning.boilerplate_page_frequency)
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        json_path.write_text(json.dumps(doc.export_to_dict()), encoding="utf-8")
 
     num_tables = num_headings = 0
     for item, _level in doc.iterate_items():
@@ -139,11 +154,6 @@ def parse_file(
             num_tables += 1
         elif isinstance(item, SectionHeaderItem):
             num_headings += 1
-
-    cache_dir = cfg.resolve_path(cfg.paths.cache_dir) / "parsed"
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    json_path = cache_dir / f"{doc_id}.json"
-    json_path.write_text(json.dumps(doc.export_to_dict()), encoding="utf-8")
 
     markdown = normalize_markdown(doc.export_to_markdown())
 
