@@ -130,6 +130,7 @@ def query(
             f"[yellow]No relevant content found (top score "
             f"{result.top_score:.3f} below floor).[/yellow]"
         )
+        _print_timings(result.timings)
         raise typer.Exit(0)
     console.print(f"[green]{len(result.blocks)} context blocks[/green] "
                   f"(top score {result.top_score:.3f})\n")
@@ -139,6 +140,7 @@ def query(
         console.print(" > ".join(b.section_path) or b.title, style="bold")
         if show_text:
             console.print(b.text[:show_text] + ("..." if len(b.text) > show_text else ""))
+    _print_timings(result.timings)
 
 
 @app.command()
@@ -160,14 +162,16 @@ def ask(
     if no_stream:
         ans = answer_question(question, retriever, llm, cfg)
         console.print(ans.text)
-        sources = ans.sources
+        sources, timings = ans.sources, ans.timings
     else:
-        sources = []
+        sources, timings = [], {}
         for event in stream_answer(question, retriever, llm, cfg):
             if event["type"] in ("token", "refusal"):
                 print(event["data"], end="", flush=True)
             elif event["type"] == "sources":
                 sources = event["data"]
+            elif event["type"] == "timings":
+                timings = event["data"]
         print()
     if sources:
         console.print("\n[bold]Sources[/bold]")
@@ -175,6 +179,32 @@ def ask(
             d = s if isinstance(s, dict) else s.__dict__
             console.print(f"  [{d['n']}] {d['section'] or d['title']} ({d['pages']}, "
                           f"score {d['score']})")
+    _print_timings(timings)
+
+
+_TIMING_LABELS = {
+    "condense_ms": "condense follow-up question",
+    "embed_query_ms": "embed query (BGE-M3)",
+    "hybrid_search_ms": "hybrid search (Qdrant RRF)",
+    "rerank_ms": "rerank candidates (cross-encoder)",
+    "parent_expand_ms": "parent expansion (Postgres)",
+    "llm_first_token_ms": "LLM first token",
+    "llm_stream_ms": "LLM full answer",
+    "llm_ms": "LLM answer",
+    "total_ms": "TOTAL",
+}
+
+
+def _print_timings(timings: dict) -> None:
+    if not timings:
+        return
+    console.print("\n[bold]Timing breakdown[/bold]")
+    for key, label in _TIMING_LABELS.items():
+        if key in timings:
+            ms = timings[key]
+            val = f"{ms / 1000:.1f}s" if ms >= 1000 else f"{ms}ms"
+            style = "bold" if key == "total_ms" else ""
+            console.print(f"  {label:<38} {val:>8}", style=style)
 
 
 @app.command("eval")

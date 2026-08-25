@@ -5,9 +5,14 @@ Components are injected so the pipeline logic is testable without models
 or services (see tests/test_retriever.py).
 """
 
+import time
 from dataclasses import dataclass, field
 
 from rag.config import Config
+
+
+def _ms(t0: float) -> int:
+    return int((time.time() - t0) * 1000)
 
 
 @dataclass
@@ -46,6 +51,7 @@ class RetrievalResult:
     blocks: list[ContextBlock]
     no_answer: bool  # best rerank score below the floor -> refuse, don't guess
     top_score: float
+    timings: dict = field(default_factory=dict)  # stage -> milliseconds
 
 
 class Retriever:
@@ -59,8 +65,11 @@ class Retriever:
     def _hybrid_search(self, query: str) -> list[ScoredChunk]:
         from qdrant_client import models as qm
 
+        t = time.time()
         emb = self.embedder.encode_query(query)
+        self._t_embed = _ms(t)
         k = self.cfg.retrieval.fused_top_k
+        t = time.time()
         res = self.store.client.query_points(
             self.store.cfg.collection,
             prefetch=[
@@ -75,6 +84,7 @@ class Retriever:
             limit=k,
             with_payload=True,
         )
+        self._t_search = _ms(t)
         return [
             ScoredChunk(
                 chunk_id=p.payload["chunk_id"],
@@ -91,11 +101,20 @@ class Retriever:
         ]
 
     def retrieve(self, query: str) -> RetrievalResult:
+        timings: dict[str, int] = {}
+        t = time.time()
         candidates = self._hybrid_search(query)
+        if hasattr(self, "_t_embed"):  # real search reports embed/search split
+            timings["embed_query_ms"] = self._t_embed
+            timings["hybrid_search_ms"] = self._t_search
+        else:
+            timings["hybrid_search_ms"] = _ms(t)
         if not candidates:
-            return RetrievalResult([], no_answer=True, top_score=0.0)
+            return RetrievalResult([], no_answer=True, top_score=0.0, timings=timings)
 
+        t = time.time()
         scores = self.reranker.rerank(query, [c.text for c in candidates])
+        timings["rerank_ms"] = _ms(t)
         for c, s in zip(candidates, scores):
             c.rerank_score = s
         candidates.sort(key=lambda c: c.rerank_score, reverse=True)
@@ -103,11 +122,15 @@ class Retriever:
         floor = self.cfg.retrieval.rerank_score_floor
         top = [c for c in candidates if c.rerank_score >= floor][: self.cfg.retrieval.rerank_top_n]
         if not top:
-            return RetrievalResult([], no_answer=True, top_score=candidates[0].rerank_score)
+            return RetrievalResult([], no_answer=True,
+                                   top_score=candidates[0].rerank_score, timings=timings)
 
+        t = time.time()
         blocks = self._expand_to_parents(top)
         blocks = self._apply_token_budget(blocks)
-        return RetrievalResult(blocks, no_answer=False, top_score=top[0].rerank_score)
+        timings["parent_expand_ms"] = _ms(t)
+        return RetrievalResult(blocks, no_answer=False,
+                               top_score=top[0].rerank_score, timings=timings)
 
     def _expand_to_parents(self, chunks: list["ScoredChunk"]) -> list[ContextBlock]:
         """Swap children for parent sections; merge children sharing a parent."""
