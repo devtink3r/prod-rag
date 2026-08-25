@@ -115,10 +115,30 @@ def ingest(
 
 
 @app.command()
-def query(question: str) -> None:
-    """Ask a question against the index (phase 5+)."""
-    console.print("[yellow]Not implemented yet — arrives in phase 5-6.[/yellow]")
-    raise typer.Exit(1)
+def query(
+    question: str,
+    show_text: int = typer.Option(400, help="Chars of each block to print (0 = none)"),
+) -> None:
+    """Retrieve context for a question (phase 5; grounded answers arrive in phase 6)."""
+    from rag.config import load_secrets
+    from rag.retrieval.retriever import build_retriever
+
+    retriever = build_retriever(load_config(), load_secrets())
+    result = retriever.retrieve(question)
+    if result.no_answer:
+        console.print(
+            f"[yellow]No relevant content found (top score "
+            f"{result.top_score:.3f} below floor).[/yellow]"
+        )
+        raise typer.Exit(0)
+    console.print(f"[green]{len(result.blocks)} context blocks[/green] "
+                  f"(top score {result.top_score:.3f})\n")
+    for i, b in enumerate(result.blocks, 1):
+        pages = f"p.{b.page_start}" + (f"-{b.page_end}" if b.page_end != b.page_start else "")
+        console.rule(f"[cyan][{i}] score={b.score:.3f} {pages} matches={b.matched_chunks}")
+        console.print(" > ".join(b.section_path) or b.title, style="bold")
+        if show_text:
+            console.print(b.text[:show_text] + ("..." if len(b.text) > show_text else ""))
 
 
 @app.command("eval")
