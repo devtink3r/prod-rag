@@ -24,6 +24,13 @@ class BgeReranker:
         self.tokenizer = AutoTokenizer.from_pretrained(cfg.reranker_model)
         self.model = AutoModelForSequenceClassification.from_pretrained(cfg.reranker_model)
         self.model.eval()
+        if cfg.rerank_quantize and not torch.cuda.is_available():
+            try:  # int8 dynamic quantization: big CPU speedup, small accuracy cost
+                self.model = torch.quantization.quantize_dynamic(
+                    self.model, {torch.nn.Linear}, dtype=torch.qint8
+                )
+            except Exception:
+                pass  # unsupported build -> keep fp32
 
     def rerank(self, query: str, texts: list[str]) -> list[float]:
         """Returns a 0..1 relevance score per text (sigmoid of the logit)."""

@@ -61,6 +61,7 @@ class RetrievalConfig(BaseModel):
     rerank_top_n: int = 8
     reranker_model: str = "BAAI/bge-reranker-v2-m3"
     rerank_max_length: int = 512
+    rerank_quantize: bool = True  # int8 dynamic quantization: 2-3x faster on CPU
     rerank_score_floor: float = 0.15
     context_token_budget: int = 10000
 
