@@ -61,9 +61,12 @@ def ask(req: AskRequest):
                 "sources": [s.__dict__ for s in ans.sources]}
 
     def sse():
-        for event in stream_answer(req.question, _state["retriever"], _state["llm"],
-                                   _state["cfg"], history=req.history):
-            yield f"event: {event['type']}\ndata: {json.dumps(event['data'])}\n\n"
+        try:
+            for event in stream_answer(req.question, _state["retriever"], _state["llm"],
+                                       _state["cfg"], history=req.history):
+                yield f"event: {event['type']}\ndata: {json.dumps(event['data'])}\n\n"
+        except Exception as exc:  # surface the cause instead of a dead stream
+            yield f"event: error\ndata: {json.dumps(str(exc)[:500])}\n\n"
         yield "event: done\ndata: {}\n\n"
 
     return StreamingResponse(sse(), media_type="text/event-stream")

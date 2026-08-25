@@ -65,8 +65,8 @@ class RetrievalConfig(BaseModel):
 
 
 class LLMConfig(BaseModel):
-    answer_model: str = "deepseek/deepseek-chat"
-    utility_model: str = "mistralai/mistral-small-3.2-24b-instruct"
+    answer_model: str = "deepseek/deepseek-v4-flash-0731"
+    utility_model: str = "deepseek/deepseek-v4-flash"
     temperature: float = 0.1
     max_tokens: int = 2048
 
