@@ -141,6 +141,42 @@ def query(
             console.print(b.text[:show_text] + ("..." if len(b.text) > show_text else ""))
 
 
+@app.command()
+def ask(
+    question: str,
+    no_stream: bool = typer.Option(False, help="Wait for the full answer"),
+) -> None:
+    """Ask a question and get a grounded, cited answer."""
+    from rag.config import load_secrets
+    from rag.generation.answerer import answer_question, stream_answer
+    from rag.generation.llm import OpenRouterLLM
+    from rag.retrieval.retriever import build_retriever
+
+    cfg = load_config()
+    secrets = load_secrets()
+    retriever = build_retriever(cfg, secrets)
+    llm = OpenRouterLLM(cfg.llm, secrets)
+
+    if no_stream:
+        ans = answer_question(question, retriever, llm, cfg)
+        console.print(ans.text)
+        sources = ans.sources
+    else:
+        sources = []
+        for event in stream_answer(question, retriever, llm, cfg):
+            if event["type"] in ("token", "refusal"):
+                print(event["data"], end="", flush=True)
+            elif event["type"] == "sources":
+                sources = event["data"]
+        print()
+    if sources:
+        console.print("\n[bold]Sources[/bold]")
+        for s in sources:
+            d = s if isinstance(s, dict) else s.__dict__
+            console.print(f"  [{d['n']}] {d['section'] or d['title']} ({d['pages']}, "
+                          f"score {d['score']})")
+
+
 @app.command("eval")
 def eval_cmd() -> None:
     """Run the evaluation suite (phase 7)."""
@@ -150,9 +186,11 @@ def eval_cmd() -> None:
 
 @app.command()
 def serve() -> None:
-    """Start the FastAPI server (phase 6)."""
-    console.print("[yellow]Not implemented yet — arrives in phase 6.[/yellow]")
-    raise typer.Exit(1)
+    """Start the FastAPI server (SSE streaming at POST /ask)."""
+    import uvicorn
+
+    cfg = load_config()
+    uvicorn.run("rag.api.app:app", host=cfg.api.host, port=cfg.api.port)
 
 
 if __name__ == "__main__":

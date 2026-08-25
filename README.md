@@ -46,6 +46,15 @@ unchanged files are skipped, changed files are re-indexed, deleted files are rem
 All tunables in `config.yaml` (chunk sizes, models, top-k, score floors).
 Secrets only in `.env` (`RAG_OPENROUTER_API_KEY`, `RAG_POSTGRES_DSN`, `RAG_API_KEY`).
 
+## Known issues / eval backlog
+
+- Appendix form fields ("22. Percentage share/interest...") trigger the rule-boundary
+  detector, producing misleading "Rule N" breadcrumbs for form content (pages ~850+).
+  Reranker buries them; revisit during evaluation (suppress rule detection in
+  appendix/form regions or require rule-like title grammar).
+- Parents/children ratio is ~1.2:1 (many single-child sections); consider merging
+  small adjacent parents if generation context feels thin.
+
 ## Build phases
 
 1. ✅ Scaffold: uv project, docker-compose, config, CLI skeleton
