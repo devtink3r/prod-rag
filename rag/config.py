@@ -86,6 +86,9 @@ class Secrets(BaseSettings):
     api_key: str = ""
     # accepts either RAG_HF_TOKEN or plain HF_TOKEN in .env / environment
     hf_token: str = Field("", validation_alias=AliasChoices("RAG_HF_TOKEN", "HF_TOKEN"))
+    # optional model overrides: when set, they win over config.yaml
+    answer_model: str = ""
+    utility_model: str = ""
 
     model_config = SettingsConfigDict(
         env_prefix="RAG_", env_file=PROJECT_ROOT / ".env", extra="ignore"
@@ -114,7 +117,13 @@ def load_config(path: Path | None = None) -> Config:
     data = yaml.safe_load(cfg_file.read_text()) or {}
     if "registry" in data and "schema" in data["registry"]:
         data["registry"]["schema_name"] = data["registry"].pop("schema")
-    return Config.model_validate(data)
+    cfg = Config.model_validate(data)
+    secrets = load_secrets()  # env overrides beat config.yaml
+    if secrets.answer_model:
+        cfg.llm.answer_model = secrets.answer_model
+    if secrets.utility_model:
+        cfg.llm.utility_model = secrets.utility_model
+    return cfg
 
 
 @lru_cache
