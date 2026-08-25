@@ -43,6 +43,6 @@ class BgeReranker:
                     max_length=_MAX_LENGTH,
                     return_tensors="pt",
                 )
-                logits = self.model(**inputs).logits.squeeze(-1)
+                logits = self.model(**inputs).logits.view(-1)
                 scores.extend(torch.sigmoid(logits).tolist())
         return [float(s) for s in scores]
