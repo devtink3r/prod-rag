@@ -36,6 +36,7 @@ class CaseResult:
     seconds: float = 0.0
     answer: str = ""
     error: str = ""
+    timings: dict = field(default_factory=dict)
 
 
 def load_cases(path: Path) -> list[EvalCase]:
@@ -55,7 +56,8 @@ def evaluate_case(case: EvalCase, retriever, llm, cfg: Config,
                   generation: bool) -> CaseResult:
     t0 = time.time()
     result = retriever.retrieve(case.question)
-    r = CaseResult(question=case.question, top_score=round(result.top_score, 3))
+    r = CaseResult(question=case.question, top_score=round(result.top_score, 3),
+                   timings=dict(result.timings))
 
     if case.expect_refusal:
         r.refusal_correct = result.no_answer
