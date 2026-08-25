@@ -37,9 +37,10 @@ registry:
   schema: rag
 
 retrieval:
-  fused_top_k: 30                # hybrid candidates before rerank
+  fused_top_k: 15                # hybrid candidates before rerank (was 30; halves CPU rerank cost)
   rerank_top_n: 8
   reranker_model: BAAI/bge-reranker-v2-m3
+  rerank_max_length: 512         # tokens per query+chunk pair at rerank (truncates long chunks)
   rerank_score_floor: 0.15       # below this -> "no relevant docs" path
   context_token_budget: 10000
 

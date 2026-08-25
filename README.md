@@ -44,6 +44,15 @@ uv run pytest                # tests
 Drop documents into `data/docs/` and run `rag ingest`. Ingestion is incremental —
 unchanged files are skipped, changed files are re-indexed, deleted files are removed.
 
+## Latency
+
+CLI commands (`rag ask`, `rag query`) load models fresh each invocation
+(~30-60s on CPU). For interactive use run `rag serve` once — models stay warm
+and each request pays only embed + search + rerank + LLM. The per-stage
+timing breakdown after each answer shows where time goes; the main knobs are
+`retrieval.fused_top_k` and `retrieval.rerank_max_length` (both trade recall
+for rerank speed — verify changes with `rag eval`).
+
 ## Configuration
 
 All tunables in `config.yaml` (chunk sizes, models, top-k, score floors).

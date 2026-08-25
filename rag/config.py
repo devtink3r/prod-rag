@@ -57,9 +57,10 @@ class RegistryConfig(BaseModel):
 
 
 class RetrievalConfig(BaseModel):
-    fused_top_k: int = 30
+    fused_top_k: int = 15
     rerank_top_n: int = 8
     reranker_model: str = "BAAI/bge-reranker-v2-m3"
+    rerank_max_length: int = 512
     rerank_score_floor: float = 0.15
     context_token_budget: int = 10000
 

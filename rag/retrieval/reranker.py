@@ -9,7 +9,6 @@ transformers versions (removed `prepare_for_model`).
 from rag.config import RetrievalConfig
 
 _BATCH = 8
-_MAX_LENGTH = 1024  # chunks are <=1024 tokens by design
 
 
 class BgeReranker:
@@ -40,7 +39,7 @@ class BgeReranker:
                     batch,
                     padding=True,
                     truncation="only_second",
-                    max_length=_MAX_LENGTH,
+                    max_length=self.cfg.rerank_max_length,
                     return_tensors="pt",
                 )
                 logits = self.model(**inputs).logits.view(-1)
