@@ -38,7 +38,7 @@ def judge_answer(question: str, answer: str, blocks, llm, cfg: Config) -> dict:
                 answer=answer,
             )}],
             model=cfg.llm.utility_model,
-            max_tokens=100,
+            max_tokens=800,  # reasoning models spend tokens thinking before the JSON
         )
         match = re.search(r"\{[^{}]*\}", raw)
         if not match:

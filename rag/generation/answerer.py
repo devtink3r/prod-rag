@@ -38,7 +38,7 @@ def condense_question(question: str, history: list[dict], llm, cfg: Config) -> s
     try:
         return llm.complete(
             [{"role": "user", "content": prompt}],
-            model=cfg.llm.utility_model, max_tokens=200,
+            model=cfg.llm.utility_model, max_tokens=600,
         ).strip()
     except Exception:
         return question  # fail-soft: answer the raw question

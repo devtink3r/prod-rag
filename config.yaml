@@ -47,9 +47,10 @@ retrieval:
 
 llm:
   # via OpenRouter (key in .env: RAG_OPENROUTER_API_KEY)
-  # free tier for dev (rate-limited); switch to paid e.g. deepseek/deepseek-v4-flash-0731 for quality
-  answer_model: nvidia/nemotron-3-ultra-550b-a55b:free
-  utility_model: nvidia/nemotron-3-ultra-550b-a55b:free
+  # stealth/ox-alpha: free preview model (note: stealth models may log prompts
+  # and can disappear without notice; fine for public docs, swap for production)
+  answer_model: stealth/ox-alpha
+  utility_model: stealth/ox-alpha
   temperature: 0.1
   max_tokens: 2048
 
