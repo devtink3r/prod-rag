@@ -1,0 +1,51 @@
+# Golden evaluation set. Grow this over time — especially with real user
+# questions that failed. expect_rule matches against retrieved section_path.
+cases:
+  - question: When do the Income-tax Rules 2026 come into force?
+    expect_rule: "Rule 1"
+    expect_keywords: ["1st April, 2026"]
+
+  - question: What does "authorised bank" mean under these rules?
+    expect_rule: "Rule 2"
+    expect_keywords: ["Reserve Bank of India"]
+
+  - question: Where must a company maintain its share register for dividend arrangements within India?
+    expect_rule: "Rule 3"
+    expect_keywords: ["principal place of business"]
+
+  - question: What are the conditions for a stock exchange to be recognised under section 2(92)?
+    expect_rule: "Rule 4"
+    expect_keywords: ["Securities and Exchange Board of India"]
+
+  - question: What is the procedure for a stock exchange to get notified as a recognised stock exchange?
+    expect_rule: "Rule 5"
+
+  - question: How is the period of holding computed for shares received on conversion?
+    expect_rule: "Rule 6"
+    expect_keywords: ["conversion"]
+
+  - question: What is the procedure for notification of a zero coupon bond?
+    expect_rule: "Rule 7"
+
+  - question: How is the period of stay in India computed for an Indian citizen crew member of a foreign-bound ship?
+    expect_rule: "Rule 8"
+
+  - question: How is the fair market value of assets determined when a foreign company's shares are transferred?
+    expect_rule: "Rule 11"
+    expect_keywords: ["market capitalisation"]
+
+  - question: What are the thresholds for significant economic presence in India?
+    expect_rule: "Rule 13"
+
+  - question: How is expenditure relating to exempt income determined?
+    expect_rule: "Rule 14"
+
+  - question: How are perquisites valued for salary purposes?
+    expect_rule: "Rule 15"
+
+  # refusal cases: the system must decline, not hallucinate
+  - question: What is the recipe for biryani?
+    expect_refusal: true
+
+  - question: What is the corporate tax rate in the United States?
+    expect_refusal: true

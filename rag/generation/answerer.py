@@ -1,6 +1,7 @@
 """Answer orchestration: retrieve -> refuse or generate -> validate citations."""
 
 import re
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 
@@ -69,17 +70,37 @@ def validate_citations(text: str, num_blocks: int) -> tuple[str, set[int]]:
     return _CITE_RE.sub(repl, text), cited
 
 
+def _trace(question, result, answer_text, cited, t0, t_retrieve, cfg) -> None:
+    from rag.observability.tracer import record
+
+    record({
+        "question": question,
+        "no_answer": result.no_answer,
+        "top_score": round(result.top_score, 3),
+        "blocks": len(result.blocks),
+        "cited": sorted(cited),
+        "answer_chars": len(answer_text),
+        "model": cfg.llm.answer_model,
+        "retrieve_ms": int(t_retrieve * 1000),
+        "total_ms": int((time.time() - t0) * 1000),
+    })
+
+
 def answer_question(
     question: str, retriever, llm, cfg: Config,
     history: list[dict] | None = None,
 ) -> Answer:
+    t0 = time.time()
     q = condense_question(question, history or [], llm, cfg)
     result = retriever.retrieve(q)
+    t_retrieve = time.time() - t0
     if result.no_answer:
+        _trace(q, result, REFUSAL_TEXT, set(), t0, t_retrieve, cfg)
         return Answer(text=REFUSAL_TEXT, no_answer=True)
     raw = llm.complete(build_messages(q, result.blocks))
     text, cited = validate_citations(raw, len(result.blocks))
     sources = [s for s in _sources_from_blocks(result.blocks) if not cited or s.n in cited]
+    _trace(q, result, text, cited, t0, t_retrieve, cfg)
     return Answer(text=text, sources=sources)
 
 
@@ -89,9 +110,12 @@ def stream_answer(
 ) -> Iterator[dict]:
     """Yields events: {'type': 'token', 'data': str} then {'type': 'sources', ...}
     or a single {'type': 'refusal'} event."""
+    t0 = time.time()
     q = condense_question(question, history or [], llm, cfg)
     result = retriever.retrieve(q)
+    t_retrieve = time.time() - t0
     if result.no_answer:
+        _trace(q, result, REFUSAL_TEXT, set(), t0, t_retrieve, cfg)
         yield {"type": "refusal", "data": REFUSAL_TEXT}
         return
     parts: list[str] = []
@@ -101,4 +125,5 @@ def stream_answer(
     _, cited = validate_citations("".join(parts), len(result.blocks))
     sources = [s.__dict__ for s in _sources_from_blocks(result.blocks)
                if not cited or s.n in cited]
+    _trace(q, result, "".join(parts), cited, t0, t_retrieve, cfg)
     yield {"type": "sources", "data": sources}

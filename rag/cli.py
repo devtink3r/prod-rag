@@ -178,10 +178,45 @@ def ask(
 
 
 @app.command("eval")
-def eval_cmd() -> None:
-    """Run the evaluation suite (phase 7)."""
-    console.print("[yellow]Not implemented yet — arrives in phase 7.[/yellow]")
-    raise typer.Exit(1)
+def eval_cmd(
+    generation: bool = typer.Option(
+        False, help="Also judge generated answers (slower, uses LLM credits)"),
+) -> None:
+    """Run the golden-set evaluation; compares against the previous run."""
+    from rag.config import load_secrets
+    from rag.eval.runner import run_eval
+    from rag.retrieval.retriever import build_retriever
+
+    cfg = load_config()
+    secrets = load_secrets()
+    retriever = build_retriever(cfg, secrets)
+    llm = None
+    if generation:
+        from rag.generation.llm import OpenRouterLLM
+
+        llm = OpenRouterLLM(cfg.llm, secrets)
+    report = run_eval(cfg, retriever, llm, generation, progress=console.print)
+    console.print("\n[bold]Summary[/bold]")
+    console.print(report["summary"])
+    if "delta_vs_previous" in report:
+        console.print("[bold]Delta vs previous run[/bold]")
+        console.print(report["delta_vs_previous"])
+    misses = [r for r in report["results"]
+              if r["hit"] is False or r["refusal_correct"] is False]
+    if misses:
+        console.print("\n[red]Misses:[/red]")
+        for m in misses:
+            console.print(f"  - {m['question']} (top_score={m['top_score']})")
+    console.print(f"\nReport: {report['report_path']}")
+
+
+@app.command()
+def traces(n: int = typer.Option(10, help="Show last N request traces")) -> None:
+    """Show recent request traces (question, scores, latency)."""
+    from rag.observability.tracer import tail
+
+    for t in tail(n):
+        console.print(t)
 
 
 @app.command()

@@ -34,7 +34,10 @@ uv run rag info              # show resolved config
 uv run rag ingest            # index documents from data/docs/  (phase 2+)
 uv run rag query "..."       # ask a question                   (phase 5+)
 uv run rag serve             # FastAPI + SSE                    (phase 6)
-uv run rag eval              # evaluation suite                 (phase 7)
+uv run rag ask "..."         # grounded, cited answer (streaming)
+uv run rag eval              # golden-set eval: hit@k, MRR, refusal accuracy
+uv run rag eval --generation # + LLM-judged faithfulness/relevance
+uv run rag traces            # recent request traces (JSONL in .cache/traces/)
 uv run pytest                # tests
 ```
 
@@ -45,6 +48,14 @@ unchanged files are skipped, changed files are re-indexed, deleted files are rem
 
 All tunables in `config.yaml` (chunk sizes, models, top-k, score floors).
 Secrets only in `.env` (`RAG_OPENROUTER_API_KEY`, `RAG_POSTGRES_DSN`, `RAG_API_KEY`).
+
+## Evaluation & observability
+
+Golden set lives in `rag/eval/golden.yaml` — add cases whenever a real question
+fails. `rag eval` saves reports to `.cache/eval/` and prints the delta against
+the previous run, so every tuning change (chunk size, top-k, model, floor) gets
+measured, not guessed. Request traces are JSONL in `.cache/traces/` (schema maps
+1:1 onto Langfuse spans if you later self-host Langfuse for a UI).
 
 ## Known issues / eval backlog
 
