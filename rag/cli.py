@@ -207,6 +207,11 @@ def eval_cmd(
         console.print("\n[red]Misses:[/red]")
         for m in misses:
             console.print(f"  - {m['question']} (top_score={m['top_score']})")
+    errors = [r for r in report["results"] if r.get("error")]
+    if errors:
+        console.print("\n[yellow]Generation errors (metrics partial):[/yellow]")
+        for e in errors:
+            console.print(f"  - {e['question'][:60]}: {e['error'][:120]}")
     console.print(f"\nReport: {report['report_path']}")
 
 

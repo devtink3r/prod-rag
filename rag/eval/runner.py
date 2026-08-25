@@ -35,6 +35,7 @@ class CaseResult:
     top_score: float = 0.0
     seconds: float = 0.0
     answer: str = ""
+    error: str = ""
 
 
 def load_cases(path: Path) -> list[EvalCase]:
@@ -67,14 +68,17 @@ def evaluate_case(case: EvalCase, retriever, llm, cfg: Config,
         from rag.eval.judge import judge_answer
         from rag.generation.answerer import answer_question
 
-        ans = answer_question(case.question, retriever, llm, cfg)
-        r.answer = ans.text
-        if case.expect_keywords:
-            found = sum(1 for k in case.expect_keywords if k.lower() in ans.text.lower())
-            r.keywords_found = found / len(case.expect_keywords)
-        scores = judge_answer(case.question, ans.text, result.blocks, llm, cfg)
-        r.faithfulness = scores.get("faithfulness")
-        r.relevance = scores.get("relevance")
+        try:  # generation failures (rate limits etc.) shouldn't kill the run
+            ans = answer_question(case.question, retriever, llm, cfg)
+            r.answer = ans.text
+            if case.expect_keywords:
+                found = sum(1 for k in case.expect_keywords if k.lower() in ans.text.lower())
+                r.keywords_found = found / len(case.expect_keywords)
+            scores = judge_answer(case.question, ans.text, result.blocks, llm, cfg)
+            r.faithfulness = scores.get("faithfulness")
+            r.relevance = scores.get("relevance")
+        except Exception as exc:
+            r.error = str(exc)[:200]
 
     r.seconds = round(time.time() - t0, 1)
     return r
