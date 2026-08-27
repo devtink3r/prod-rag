@@ -22,10 +22,15 @@ Built on LlamaIndex.
 Requires [uv](https://docs.astral.sh/uv/) and Docker.
 
 ```bash
-uv venv && uv sync           # create .venv + install deps
+uv sync --extra cpu          # CPU machine (lightweight torch wheels)
+uv sync --extra gpu          # NVIDIA/CUDA machine (RTX/A-series; CUDA torch, ~2.5GB)
 cp .env.example .env         # then fill in your OpenRouter key
 docker compose up -d         # qdrant :6333, postgres :5433
 ```
+
+Device is `auto` by default (CUDA when available). Override in config.yaml
+(`device: cpu|cuda`) or live from the UI dropdown — switching reloads models
+(~30-60s). On CUDA: fp16 models, 4x embed batches, 32-pair rerank batches.
 
 ## Usage
 
