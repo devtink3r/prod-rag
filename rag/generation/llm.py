@@ -61,7 +61,8 @@ class OpenRouterLLM:
                     last_error = OpenRouterError("rate limited (429)")
                     time.sleep(_BACKOFF * (2 ** attempt))
                     continue
-                resp.raise_for_status()
+                if resp.status_code >= 400:  # surface OpenRouter's actual reason
+                    raise OpenRouterError(f"HTTP {resp.status_code}: {resp.text[:400]}")
                 try:
                     data = resp.json()
                     self.last_usage = data.get("usage") or {}
@@ -93,7 +94,9 @@ class OpenRouterLLM:
                 headers=self.headers,
                 json=payload,
             ) as resp:
-                resp.raise_for_status()
+                if resp.status_code >= 400:
+                    body = resp.read().decode("utf-8", "replace")[:400]
+                    raise OpenRouterError(f"HTTP {resp.status_code}: {body}")
                 for line in resp.iter_lines():
                     if not line.startswith("data: "):
                         continue
