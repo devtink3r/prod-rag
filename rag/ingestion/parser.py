@@ -18,6 +18,7 @@ from rag.ingestion.cleaners import (
 from rag.ingestion.models import ParsedDoc, ParseStats
 
 _converter = None
+_converter_device: str | None = None
 
 
 def compute_doc_id(path: Path) -> str:
@@ -28,9 +29,12 @@ def compute_doc_id(path: Path) -> str:
     return h.hexdigest()[:16]
 
 
-def _get_converter():
-    global _converter
-    if _converter is None:
+def _get_converter(device: str | None = None):
+    global _converter, _converter_device
+    from rag.config import resolve_device
+
+    device = device or resolve_device("auto")[0]
+    if _converter is None or _converter_device != device:
         from rag.config import export_hf_token
 
         export_hf_token()
@@ -41,9 +45,20 @@ def _get_converter():
         pdf_opts = PdfPipelineOptions()
         pdf_opts.do_table_structure = True
         pdf_opts.do_ocr = True  # applies only to pages without a text layer
+        try:  # route docling's layout/OCR models to the selected device
+            from docling.datamodel.accelerator_options import (
+                AcceleratorDevice,
+                AcceleratorOptions,
+            )
+
+            acc = {"cuda": AcceleratorDevice.CUDA, "cpu": AcceleratorDevice.CPU}[device]
+            pdf_opts.accelerator_options = AcceleratorOptions(device=acc)
+        except Exception:
+            pass  # older docling: falls back to its own auto-detection
         _converter = DocumentConverter(
             format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pdf_opts)}
         )
+        _converter_device = device
     return _converter
 
 
@@ -95,10 +110,11 @@ def _pdf_page_count(path: Path) -> int:
         pdf.close()
 
 
-def _convert(path: Path, max_pages: int | None, progress) -> tuple[object, list[str]]:
+def _convert(path: Path, max_pages: int | None, progress,
+             device: str | None = None) -> tuple[object, list[str]]:
     """Convert a file; PDFs are parsed in page segments so progress is visible.
     Returns (DoclingDocument, warnings)."""
-    conv = _get_converter()
+    conv = _get_converter(device)
     if path.suffix.lower() != ".pdf":
         result = conv.convert(str(path))
         return result.document, [str(e.error_message) for e in result.errors]
@@ -126,7 +142,8 @@ def _convert(path: Path, max_pages: int | None, progress) -> tuple[object, list[
 
 
 def parse_file(
-    path: Path, cfg: Config, max_pages: int | None = None, progress=lambda msg: None
+    path: Path, cfg: Config, max_pages: int | None = None,
+    progress=lambda msg: None, device: str | None = None,
 ) -> ParsedDoc:
     from docling_core.types.doc.document import SectionHeaderItem, TableItem
 
@@ -146,7 +163,7 @@ def parse_file(
         conv_warnings: list[str] = []
         removed = 0
     else:
-        doc, conv_warnings = _convert(path, max_pages, progress)
+        doc, conv_warnings = _convert(path, max_pages, progress, device)
         removed = _strip_boilerplate(doc, cfg.cleaning.boilerplate_page_frequency)
         cache_dir.mkdir(parents=True, exist_ok=True)
         json_path.write_text(json.dumps(doc.export_to_dict()), encoding="utf-8")

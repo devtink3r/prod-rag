@@ -96,7 +96,26 @@ class Secrets(BaseSettings):
     )
 
 
+def resolve_device(setting: str) -> tuple[str, str | None]:
+    """'auto'|'cuda'|'cpu' -> concrete device + optional fallback warning."""
+    try:
+        import torch
+
+        has_cuda = torch.cuda.is_available()
+    except Exception:
+        has_cuda = False
+    setting = (setting or "auto").lower()
+    if setting == "cpu":
+        return "cpu", None
+    if setting in ("cuda", "gpu"):
+        if has_cuda:
+            return "cuda", None
+        return "cpu", "CUDA requested but not available — falling back to CPU"
+    return ("cuda", None) if has_cuda else ("cpu", None)
+
+
 class Config(BaseModel):
+    device: str = "auto"  # auto | cuda | cpu — applies to parsing, embedding, reranking
     paths: PathsConfig = PathsConfig()
     ingestion: IngestionConfig = IngestionConfig()
     cleaning: CleaningConfig = CleaningConfig()

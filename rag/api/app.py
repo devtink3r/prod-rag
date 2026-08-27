@@ -20,16 +20,25 @@ _ingest = {"running": False, "log": [], "report": None}
 _ingest_lock = threading.Lock()
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
+def _load_models(device: str | None = None) -> None:
+    from rag.config import resolve_device
     from rag.generation.llm import OpenRouterLLM
     from rag.retrieval.retriever import build_retriever
 
     cfg = load_config()
     secrets = load_secrets()
+    resolved, warning = resolve_device(device or cfg.device)
     _state["cfg"] = cfg
-    _state["retriever"] = build_retriever(cfg, secrets)
+    _state["retriever"] = build_retriever(cfg, secrets, device=resolved)
     _state["llm"] = OpenRouterLLM(cfg.llm, secrets)
+    _state["device"] = resolved
+    _state["device_warning"] = warning
+    _state["reloading"] = False
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    _load_models()
     yield
     _state.clear()
 
@@ -53,7 +62,35 @@ class AskRequest(BaseModel):
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok", "models_loaded": "retriever" in _state}
+    return {
+        "status": "ok",
+        "models_loaded": "retriever" in _state and not _state.get("reloading"),
+        "device": _state.get("device"),
+        "device_warning": _state.get("device_warning"),
+        "reloading": _state.get("reloading", False),
+    }
+
+
+class DeviceRequest(BaseModel):
+    device: str = Field(pattern="^(auto|gpu|cuda|cpu)$")
+
+
+@app.post("/device", dependencies=[Depends(check_api_key)])
+def set_device(req: DeviceRequest) -> dict:
+    """Switch compute device; reloads models in the background (~30-60s)."""
+    if _state.get("reloading"):
+        return {"ok": False, "reason": "reload already in progress"}
+    _state["reloading"] = True
+
+    def _reload() -> None:
+        try:
+            _load_models(device=req.device)
+        except Exception as exc:
+            _state["device_warning"] = f"reload failed: {exc}"
+            _state["reloading"] = False
+
+    threading.Thread(target=_reload, daemon=True).start()
+    return {"ok": True, "requested": req.device}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -101,8 +138,7 @@ def documents() -> dict:
     return {"documents": docs, "index_points": points}
 
 
-@app.post("/ingest", dependencies=[Depends(check_api_key)])
-def trigger_ingest() -> dict:
+def _start_ingest() -> dict:
     with _ingest_lock:
         if _ingest["running"]:
             return {"started": False, "reason": "already running"}
@@ -113,7 +149,8 @@ def trigger_ingest() -> dict:
 
         try:
             report = run_ingest(load_config(), load_secrets(),
-                                progress=lambda m: _ingest["log"].append(str(m)))
+                                progress=lambda m: _ingest["log"].append(str(m)),
+                                device=_state.get("device"))
             _ingest["report"] = report.__dict__
         except Exception as exc:
             _ingest["log"].append(f"FAILED: {exc}")
@@ -122,6 +159,46 @@ def trigger_ingest() -> dict:
 
     threading.Thread(target=_run, daemon=True).start()
     return {"started": True}
+
+
+@app.post("/ingest", dependencies=[Depends(check_api_key)])
+def trigger_ingest() -> dict:
+    return _start_ingest()
+
+
+ALLOWED_EXTENSIONS = {".pdf", ".docx", ".pptx", ".xlsx", ".html", ".md", ".txt"}
+MAX_UPLOAD_BYTES = 200 * 1024 * 1024
+
+
+@app.post("/upload", dependencies=[Depends(check_api_key)])
+async def upload(request: Request) -> dict:
+    """Accept a document upload into the source folder, then auto-ingest."""
+    from starlette.datastructures import UploadFile
+
+    form = await request.form()
+    file = form.get("file")
+    if not isinstance(file, UploadFile) or not file.filename:
+        raise HTTPException(status_code=400, detail="no file provided")
+    name = Path(file.filename).name  # strip any path components
+    ext = Path(name).suffix.lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400,
+                            detail=f"unsupported type {ext}; allowed: {sorted(ALLOWED_EXTENSIONS)}")
+    cfg = _state["cfg"]
+    dest_dir = cfg.resolve_path(cfg.paths.source_dir)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / name
+    size = 0
+    with dest.open("wb") as out:
+        while chunk := await file.read(1 << 20):
+            size += len(chunk)
+            if size > MAX_UPLOAD_BYTES:
+                out.close()
+                dest.unlink(missing_ok=True)
+                raise HTTPException(status_code=413, detail="file exceeds 200MB limit")
+            out.write(chunk)
+    ingest = _start_ingest()
+    return {"saved": name, "bytes": size, "ingest": ingest}
 
 
 @app.get("/ingest/status", dependencies=[Depends(check_api_key)])

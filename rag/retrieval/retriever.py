@@ -178,17 +178,21 @@ class Retriever:
         return kept
 
 
-def build_retriever(cfg: Config, secrets) -> Retriever:
+def build_retriever(cfg: Config, secrets, device: str | None = None) -> Retriever:
     """Wire real components (loads models — slow on first call)."""
+    from rag.config import resolve_device
     from rag.index.embedder import BgeM3Embedder
     from rag.index.qdrant_store import QdrantStore
     from rag.index.registry import Registry
     from rag.retrieval.reranker import BgeReranker
 
-    return Retriever(
+    device = device or resolve_device(cfg.device)[0]
+    r = Retriever(
         cfg,
-        embedder=BgeM3Embedder(cfg.embedding),
+        embedder=BgeM3Embedder(cfg.embedding, device=device),
         store=QdrantStore(cfg.vector_store),
-        reranker=BgeReranker(cfg.retrieval),
+        reranker=BgeReranker(cfg.retrieval, device=device),
         registry=Registry(secrets.postgres_dsn, cfg.registry.schema_name),
     )
+    r.device = device
+    return r

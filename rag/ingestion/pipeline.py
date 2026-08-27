@@ -83,9 +83,17 @@ def run_ingest(
     dry_run: bool = False,
     max_pages: int | None = None,
     progress=lambda msg: None,
+    device: str | None = None,
 ) -> IngestReport:
+    from rag.config import resolve_device
     from rag.index.registry import Registry
     from rag.ingestion.parser import compute_doc_id
+
+    if device is None:
+        device, warn = resolve_device(cfg.device)
+        if warn:
+            progress(f"WARNING: {warn}")
+    progress(f"device: {device}")
 
     registry = Registry(secrets.postgres_dsn, cfg.registry.schema_name)
     files = discover(cfg)
@@ -122,7 +130,8 @@ def run_ingest(
         old = old_entries.get(str(path))
         try:
             progress(f"parsing {path.name} ...")
-            parsed = parse_file(path, cfg, max_pages=max_pages, progress=progress)
+            parsed = parse_file(path, cfg, max_pages=max_pages,
+                                progress=progress, device=device)
             children, parents = chunk_document(parsed, cfg)
             enriched = add_contextual_summaries(children, parsed.markdown, cfg, secrets)
             if enriched:
@@ -131,7 +140,7 @@ def run_ingest(
                 nonlocal embedder
                 if embedder is None:
                     progress(f"loading embedding model {cfg.embedding.model} ...")
-                    embedder = BgeM3Embedder(cfg.embedding)
+                    embedder = BgeM3Embedder(cfg.embedding, device=device)
                 return embedder
 
             progress(f"  embedding {len(children)} chunks ...")

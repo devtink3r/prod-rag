@@ -1,5 +1,7 @@
 # All tunables live here. Secrets live in .env (never here).
 
+device: auto   # auto | cuda | cpu — parsing, embedding, reranking (UI can switch at runtime)
+
 paths:
   source_dir: data/docs          # documents to ingest
   cache_dir: .cache              # parse/transform cache
@@ -24,8 +26,7 @@ chunking:
 
 embedding:
   model: BAAI/bge-m3             # dense + sparse in one pass
-  device: auto                   # cpu | cuda | auto
-  batch_size: 16
+  batch_size: 16                 # per-device: x4 automatically on CUDA
   max_length: 1024   # chunks are <=1024 tok by design; 8192 padding made CPU embedding ~10x slower
 
 vector_store:

@@ -9,6 +9,18 @@ def block(rule):
                         source_path="/a", section_path=[rule])
 
 
+def test_resolve_device_fallback():
+    from rag.config import resolve_device
+
+    dev, warn = resolve_device("cpu")
+    assert dev == "cpu" and warn is None
+    dev, warn = resolve_device("auto")
+    assert dev in ("cpu", "cuda") and warn is None
+    dev, warn = resolve_device("gpu")  # sandbox/CI has no CUDA -> fallback
+    if dev == "cpu":
+        assert warn and "falling back" in warn
+
+
 def test_golden_set_loads():
     cases = load_cases(Path(__file__).parent.parent / "rag" / "eval" / "golden.yaml")
     assert len(cases) >= 10

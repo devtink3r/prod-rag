@@ -17,27 +17,26 @@ class Embedding:
 
 
 class BgeM3Embedder:
-    def __init__(self, cfg: EmbeddingConfig):
-        from rag.config import export_hf_token
+    def __init__(self, cfg: EmbeddingConfig, device: str | None = None):
+        from rag.config import export_hf_token, resolve_device
 
         export_hf_token()
         from FlagEmbedding import BGEM3FlagModel
 
-        device = None if cfg.device == "auto" else cfg.device
+        self.device = device or resolve_device("auto")[0]
         self.cfg = cfg
-        kwargs = {"use_fp16": device != "cpu"}
-        if device:
-            try:
-                self.model = BGEM3FlagModel(cfg.model, devices=[device], **kwargs)
-                return
-            except TypeError:
-                kwargs["device"] = device
-        self.model = BGEM3FlagModel(cfg.model, **kwargs)
+        # CUDA: fp16 + larger batches; CPU: fp32
+        self.batch_size = cfg.batch_size * (4 if self.device == "cuda" else 1)
+        kwargs = {"use_fp16": self.device == "cuda"}
+        try:
+            self.model = BGEM3FlagModel(cfg.model, devices=[self.device], **kwargs)
+        except TypeError:
+            self.model = BGEM3FlagModel(cfg.model, device=self.device, **kwargs)
 
     def encode(self, texts: list[str]) -> list[Embedding]:
         out = self.model.encode(
             texts,
-            batch_size=self.cfg.batch_size,
+            batch_size=self.batch_size,
             max_length=self.cfg.max_length,
             return_dense=True,
             return_sparse=True,

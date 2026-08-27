@@ -8,12 +8,9 @@ transformers versions (removed `prepare_for_model`).
 
 from rag.config import RetrievalConfig
 
-_BATCH = 8
-
-
 class BgeReranker:
-    def __init__(self, cfg: RetrievalConfig):
-        from rag.config import export_hf_token
+    def __init__(self, cfg: RetrievalConfig, device: str | None = None):
+        from rag.config import export_hf_token, resolve_device
 
         export_hf_token()
         import torch
@@ -21,11 +18,15 @@ class BgeReranker:
 
         self.cfg = cfg
         self.torch = torch
+        self.device = device or resolve_device("auto")[0]
+        self.batch = 32 if self.device == "cuda" else 8
         self.tokenizer = AutoTokenizer.from_pretrained(cfg.reranker_model)
         self.model = AutoModelForSequenceClassification.from_pretrained(cfg.reranker_model)
         self.model.eval()
-        if cfg.rerank_quantize and not torch.cuda.is_available():
-            try:  # int8 dynamic quantization: big CPU speedup, small accuracy cost
+        if self.device == "cuda":
+            self.model = self.model.half().to("cuda")
+        elif cfg.rerank_quantize:
+            try:  # int8 dynamic quantization: CPU speedup, small accuracy cost
                 self.model = torch.quantization.quantize_dynamic(
                     self.model, {torch.nn.Linear}, dtype=torch.qint8
                 )
@@ -39,8 +40,8 @@ class BgeReranker:
         torch = self.torch
         scores: list[float] = []
         with torch.no_grad():
-            for i in range(0, len(texts), _BATCH):
-                batch = texts[i : i + _BATCH]
+            for i in range(0, len(texts), self.batch):
+                batch = texts[i : i + self.batch]
                 inputs = self.tokenizer(
                     [query] * len(batch),
                     batch,
@@ -49,6 +50,8 @@ class BgeReranker:
                     max_length=self.cfg.rerank_max_length,
                     return_tensors="pt",
                 )
-                logits = self.model(**inputs).logits.view(-1)
+                if self.device == "cuda":
+                    inputs = {k: v.to("cuda") for k, v in inputs.items()}
+                logits = self.model(**inputs).logits.view(-1).float()
                 scores.extend(torch.sigmoid(logits).tolist())
         return [float(s) for s in scores]

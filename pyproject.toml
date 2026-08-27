@@ -18,7 +18,13 @@ dependencies = [
     "psycopg[binary]>=3.2",
     "fastapi>=0.115",
     "uvicorn>=0.32",
+    "python-multipart>=0.0.12",
 ]
+
+[project.optional-dependencies]
+# install exactly one: uv sync --extra cpu   |   uv sync --extra gpu
+cpu = ["torch>=2.4", "torchvision"]
+gpu = ["torch>=2.4", "torchvision"]
 
 [project.scripts]
 rag = "rag.cli:app"
@@ -29,15 +35,17 @@ dev = [
 ]
 
 [tool.uv]
-# CPU-only torch: keeps installs ~2GB lighter. Remove this block for GPU.
+conflicts = [[{ extra = "cpu" }, { extra = "gpu" }]]
+
 [[tool.uv.index]]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
 [tool.uv.sources]
-torch = { index = "pytorch-cpu" }
-torchvision = { index = "pytorch-cpu" }
+# cpu extra -> lightweight CPU wheels; gpu extra -> default PyPI (CUDA-bundled)
+torch = [{ index = "pytorch-cpu", extra = "cpu" }]
+torchvision = [{ index = "pytorch-cpu", extra = "cpu" }]
 
 [build-system]
 requires = ["hatchling"]

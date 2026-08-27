@@ -17,6 +17,9 @@ header .badge.ok{color:var(--green);border-color:var(--green)}
 .tabs button{background:none;border:1px solid var(--border);color:var(--dim);padding:5px 14px;border-radius:8px;cursor:pointer;font-size:13px}
 .tabs button.active{color:var(--text);background:var(--panel2)}
 #apikey{background:var(--panel2);border:1px solid var(--border);color:var(--text);padding:5px 10px;border-radius:8px;font-size:12px;width:150px}
+#device{background:var(--panel2);border:1px solid var(--border);color:var(--text);padding:5px 8px;border-radius:8px;font-size:12px}
+#dropzone{border:2px dashed var(--border);border-radius:var(--radius);padding:26px;text-align:center;color:var(--dim);font-size:13px;margin-top:14px;cursor:pointer;transition:border-color .15s}
+#dropzone.drag{border-color:var(--accent);color:var(--accent)}
 main{flex:1;overflow:hidden;display:flex;flex-direction:column}
 .page{flex:1;overflow-y:auto;display:none;flex-direction:column}
 .page.active{display:flex}
@@ -63,6 +66,9 @@ th{color:var(--dim);font-weight:500}
 <header>
   <h1>prod-rag</h1>
   <span class="badge" id="health">connecting…</span>
+  <select id="device" title="Compute device (switching reloads models, ~30-60s)">
+    <option value="auto">auto</option><option value="gpu">gpu</option><option value="cpu">cpu</option>
+  </select>
   <input id="apikey" type="password" placeholder="API key" title="X-API-Key (stored in this browser)">
   <div class="tabs">
     <button class="active" data-page="chat">Chat</button>
@@ -88,6 +94,9 @@ th{color:var(--dim);font-weight:500}
     <div id="docs">
       <button id="reingest">Run ingest</button>
       <span class="chip" id="indexinfo"></span>
+      <div id="dropzone">Drop a document here or click to upload<br>
+        <span style="font-size:11px">pdf · docx · pptx · xlsx · html · md — uploads ingest automatically</span></div>
+      <input type="file" id="fileinput" style="display:none" accept=".pdf,.docx,.pptx,.xlsx,.html,.md,.txt">
       <div id="ingestlog"></div>
       <div id="doctable"></div>
     </div>
@@ -124,11 +133,24 @@ async function loadModels(){
 }
 loadModels();
 
-fetch('/health').then(r=>r.json()).then(h=>{
-  const b=$('#health');
-  b.textContent=h.models_loaded?'ready':'starting…';
-  b.classList.toggle('ok',!!h.models_loaded);
-}).catch(()=>$('#health').textContent='offline');
+function refreshHealth(){
+  return fetch('/health').then(r=>r.json()).then(h=>{
+    const b=$('#health');
+    b.textContent=h.reloading?'reloading models…':(h.models_loaded?'ready · '+(h.device||'?'):'starting…');
+    b.classList.toggle('ok',!!h.models_loaded&&!h.reloading);
+    if(h.device_warning) b.textContent+=' ⚠';
+    b.title=h.device_warning||'';
+    $('#send').disabled=!!h.reloading;
+    return h;
+  }).catch(()=>{$('#health').textContent='offline';});
+}
+refreshHealth();
+$('#device').value=localStorage.getItem('rag_device')||'auto';
+$('#device').addEventListener('change',async e=>{
+  localStorage.setItem('rag_device',e.target.value);
+  await fetch('/device',{method:'POST',headers:hdrs(),body:JSON.stringify({device:e.target.value})});
+  const poll=setInterval(async()=>{const h=await refreshHealth();if(h&&!h.reloading)clearInterval(poll);},2000);
+});
 
 document.querySelectorAll('.tabs button').forEach(btn=>btn.addEventListener('click',()=>{
   document.querySelectorAll('.tabs button').forEach(b=>b.classList.remove('active'));
@@ -275,8 +297,7 @@ async function loadDocs(){
   }catch(e){ $('#doctable').innerHTML='<div class="hint">Could not load documents: '+e.message+'</div>'; }
 }
 
-$('#reingest').onclick=async()=>{
-  await fetch('/ingest',{method:'POST',headers:hdrs()});
+function pollIngest(){
   $('#ingestlog').style.display='block';
   const poll=setInterval(async()=>{
     const s=await(await fetch('/ingest/status',{headers:hdrs()})).json();
@@ -284,7 +305,28 @@ $('#reingest').onclick=async()=>{
     $('#ingestlog').scrollTop=$('#ingestlog').scrollHeight;
     if(!s.running){clearInterval(poll);loadDocs();}
   },2000);
+}
+$('#reingest').onclick=async()=>{
+  await fetch('/ingest',{method:'POST',headers:hdrs()});
+  pollIngest();
 };
+
+async function uploadFile(f){
+  if(!f) return;
+  $('#dropzone').textContent='Uploading '+f.name+' …';
+  const fd=new FormData(); fd.append('file',f);
+  const r=await fetch('/upload',{method:'POST',headers:{'X-API-Key':key()},body:fd});
+  if(!r.ok){$('#dropzone').textContent='Upload failed: '+(await r.text());return;}
+  const d=await r.json();
+  $('#dropzone').textContent='Uploaded '+d.saved+' ('+(d.bytes/1e6).toFixed(1)+' MB) — ingesting…';
+  pollIngest();
+}
+const dz=$('#dropzone');
+dz.onclick=()=>$('#fileinput').click();
+$('#fileinput').addEventListener('change',e=>uploadFile(e.target.files[0]));
+dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag');});
+dz.addEventListener('dragleave',()=>dz.classList.remove('drag'));
+dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag');uploadFile(e.dataTransfer.files[0]);});
 </script>
 </body>
 </html>
