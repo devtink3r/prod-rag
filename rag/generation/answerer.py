@@ -30,7 +30,8 @@ class Answer:
     timings: dict = field(default_factory=dict)
 
 
-def condense_question(question: str, history: list[dict], llm, cfg: Config) -> str:
+def condense_question(question: str, history: list[dict], llm, cfg: Config,
+                      utility_model: str | None = None) -> str:
     """Rewrite a follow-up into a standalone question using the cheap model."""
     if not history:
         return question
@@ -39,7 +40,7 @@ def condense_question(question: str, history: list[dict], llm, cfg: Config) -> s
     try:
         return llm.complete(
             [{"role": "user", "content": prompt}],
-            model=cfg.llm.utility_model, max_tokens=600,
+            model=utility_model or cfg.llm.utility_model, max_tokens=600,
         ).strip()
     except Exception:
         return question  # fail-soft: answer the raw question
@@ -91,10 +92,11 @@ def _trace(question, result, answer_text, cited, timings, cfg) -> None:
 def answer_question(
     question: str, retriever, llm, cfg: Config,
     history: list[dict] | None = None,
+    answer_model: str | None = None, utility_model: str | None = None,
 ) -> Answer:
     t0 = time.time()
     t = time.time()
-    q = condense_question(question, history or [], llm, cfg)
+    q = condense_question(question, history or [], llm, cfg, utility_model)
     timings = {}
     if history:
         timings["condense_ms"] = int((time.time() - t) * 1000)
@@ -105,7 +107,7 @@ def answer_question(
         _trace(q, result, REFUSAL_TEXT, set(), timings, cfg)
         return Answer(text=REFUSAL_TEXT, no_answer=True, timings=timings)
     t = time.time()
-    raw = llm.complete(build_messages(q, result.blocks))
+    raw = llm.complete(build_messages(q, result.blocks), model=answer_model)
     timings["llm_ms"] = int((time.time() - t) * 1000)
     text, cited = validate_citations(raw, len(result.blocks))
     sources = [s for s in _sources_from_blocks(result.blocks) if not cited or s.n in cited]
@@ -117,6 +119,7 @@ def answer_question(
 def stream_answer(
     question: str, retriever, llm, cfg: Config,
     history: list[dict] | None = None,
+    answer_model: str | None = None, utility_model: str | None = None,
 ) -> Iterator[dict]:
     """Yields events: {'type': 'token', 'data': str} then {'type': 'sources', ...}
     or a single {'type': 'refusal'} event."""
@@ -128,7 +131,7 @@ def stream_answer(
     timings = {}
     if history:
         yield {"type": "stage", "data": "condensing follow-up question"}
-        q = condense_question(question, history, llm, cfg)
+        q = condense_question(question, history, llm, cfg, utility_model)
         timings["condense_ms"] = int((time.time() - t) * 1000)
     else:
         q = question
@@ -172,7 +175,7 @@ def stream_answer(
     parts: list[str] = []
     t = time.time()
     first_token_ms = None
-    for token in llm.stream(build_messages(q, result.blocks)):
+    for token in llm.stream(build_messages(q, result.blocks), model=answer_model):
         if first_token_ms is None:
             first_token_ms = int((time.time() - t) * 1000)
         parts.append(token)

@@ -54,6 +54,9 @@ th{color:var(--dim);font-weight:500}
 #reingest{background:var(--accent);color:#0b0e14;border:none;border-radius:8px;padding:8px 18px;cursor:pointer;font-size:14px}
 #ingestlog{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-top:14px;font:12px/1.7 ui-monospace,monospace;color:var(--dim);max-height:300px;overflow-y:auto;white-space:pre-wrap;display:none}
 .hint{color:var(--dim);font-size:13px;text-align:center;padding:30px}
+#models{display:flex;gap:14px;align-items:center;padding:8px 20px;border-bottom:1px solid var(--border);background:var(--panel);font-size:12px;color:var(--dim);flex-wrap:wrap;max-width:860px;width:100%;margin:0 auto}
+#models label{display:flex;gap:6px;align-items:center}
+#models input{background:var(--panel2);border:1px solid var(--border);color:var(--text);padding:4px 10px;border-radius:8px;font-size:12px;width:250px}
 </style>
 </head>
 <body>
@@ -68,6 +71,12 @@ th{color:var(--dim);font-weight:500}
 </header>
 <main>
   <div class="page active" id="page-chat">
+    <div id="models">
+      <label>Answer model <input id="answermodel" list="modellist" placeholder="server default" spellcheck="false"></label>
+      <label>Utility model <input id="utilitymodel" list="modellist" placeholder="server default" spellcheck="false"></label>
+      <datalist id="modellist"></datalist>
+      <span class="chip" id="modelcount"></span>
+    </div>
     <div id="chatlog"><div class="hint">Ask a question about your indexed documents.<br>Answers are grounded and cited — sources and timings shown per answer.</div></div>
     <div id="composer">
       <textarea id="question" placeholder="Ask a question… (Enter to send, Shift+Enter for newline)"></textarea>
@@ -92,6 +101,28 @@ $('#apikey').addEventListener('change',e=>localStorage.setItem('rag_api_key',e.t
 const hdrs=()=>({'Content-Type':'application/json','X-API-Key':key()});
 const history=[];
 let aborter=null;
+
+for(const id of ['answermodel','utilitymodel']){
+  const inp=document.getElementById(id);
+  inp.value=localStorage.getItem('rag_'+id)||'';
+  inp.addEventListener('change',()=>localStorage.setItem('rag_'+id,inp.value.trim()));
+}
+async function loadModels(){
+  try{
+    const r=await fetch('/models',{headers:hdrs()});
+    if(!r.ok) return;
+    const d=await r.json();
+    const dl=$('#modellist'); dl.innerHTML='';
+    for(const m of d.models){
+      const o=document.createElement('option');
+      o.value=m.id;
+      o.label=(m.free?'FREE — ':'$'+Number(m.prompt_price||0)*1e6+'/M — ')+m.name;
+      dl.appendChild(o);
+    }
+    $('#modelcount').textContent=d.models.length+' models · type to search';
+  }catch(e){}
+}
+loadModels();
 
 fetch('/health').then(r=>r.json()).then(h=>{
   const b=$('#health');
@@ -155,8 +186,12 @@ async function ask(){
   $('#send').style.display='none'; $('#stop').style.display='block';
   aborter=new AbortController();
   try{
+    const body={question:q,history:history.slice(-8),stream:true};
+    const am=$('#answermodel').value.trim(), um=$('#utilitymodel').value.trim();
+    if(am) body.answer_model=am;
+    if(um) body.utility_model=um;
     const resp=await fetch('/ask',{method:'POST',headers:hdrs(),signal:aborter.signal,
-      body:JSON.stringify({question:q,history:history.slice(-8),stream:true})});
+      body:JSON.stringify(body)});
     if(!resp.ok){bubble.textContent='Error: '+resp.status+' '+await resp.text();return;}
     const reader=resp.body.getReader(),dec=new TextDecoder();
     let buf='';

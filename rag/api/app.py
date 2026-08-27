@@ -47,6 +47,8 @@ class AskRequest(BaseModel):
     question: str = Field(min_length=3, max_length=2000)
     history: list[dict] = Field(default_factory=list, max_length=20)
     stream: bool = True
+    answer_model: str | None = Field(None, max_length=120)
+    utility_model: str | None = Field(None, max_length=120)
 
 
 @app.get("/health")
@@ -57,6 +59,36 @@ def health() -> dict:
 @app.get("/", response_class=HTMLResponse)
 def ui() -> str:
     return (Path(__file__).parent / "static" / "index.html").read_text(encoding="utf-8")
+
+
+_models_cache: dict = {"ts": 0.0, "data": []}
+
+
+@app.get("/models", dependencies=[Depends(check_api_key)])
+def models() -> dict:
+    """OpenRouter model catalog (cached 1h), for the UI dropdowns."""
+    import time as _time
+
+    import httpx
+
+    if _time.time() - _models_cache["ts"] > 3600 or not _models_cache["data"]:
+        resp = httpx.get("https://openrouter.ai/api/v1/models", timeout=20)
+        resp.raise_for_status()
+        out = []
+        for m in resp.json().get("data", []):
+            pricing = m.get("pricing") or {}
+            free = float(pricing.get("prompt") or 0) == 0 and float(
+                pricing.get("completion") or 0) == 0
+            out.append({
+                "id": m["id"],
+                "name": m.get("name", m["id"]),
+                "free": free,
+                "prompt_price": pricing.get("prompt"),
+                "context": m.get("context_length"),
+            })
+        out.sort(key=lambda m: (not m["free"], m["id"]))
+        _models_cache.update(ts=_time.time(), data=out)
+    return {"models": _models_cache["data"]}
 
 
 @app.get("/documents", dependencies=[Depends(check_api_key)])
@@ -119,14 +151,18 @@ def ask(req: AskRequest):
 
     if not req.stream:
         ans = answer_question(req.question, _state["retriever"], _state["llm"],
-                              _state["cfg"], history=req.history)
+                              _state["cfg"], history=req.history,
+                              answer_model=req.answer_model,
+                              utility_model=req.utility_model)
         return {"answer": ans.text, "no_answer": ans.no_answer,
                 "sources": [s.__dict__ for s in ans.sources]}
 
     def sse():
         try:
             for event in stream_answer(req.question, _state["retriever"], _state["llm"],
-                                       _state["cfg"], history=req.history):
+                                       _state["cfg"], history=req.history,
+                                       answer_model=req.answer_model,
+                                       utility_model=req.utility_model):
                 yield f"event: {event['type']}\ndata: {json.dumps(event['data'])}\n\n"
         except Exception as exc:  # surface the cause instead of a dead stream
             yield f"event: error\ndata: {json.dumps(str(exc)[:500])}\n\n"
