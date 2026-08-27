@@ -74,6 +74,20 @@ class Registry:
             [source_path, *cols.values(), *cols.values()],
         )
 
+    def list_documents(self) -> list[dict]:
+        rows = self.conn.execute(
+            f"SELECT source_path, doc_id, status, error, title, doc_type, num_pages, "
+            f"chunk_count, pipeline_version, last_indexed_at "
+            f"FROM {self.schema}.documents ORDER BY source_path"
+        ).fetchall()
+        cols = ["source_path", "doc_id", "status", "error", "title", "doc_type",
+                "num_pages", "chunk_count", "pipeline_version", "last_indexed_at"]
+        return [
+            {c: (str(v) if c == "last_indexed_at" and v else v)
+             for c, v in zip(cols, r)}
+            for r in rows
+        ]
+
     def delete_doc(self, source_path: str) -> None:
         self.conn.execute(
             f"DELETE FROM {self.schema}.documents WHERE source_path = %s", [source_path]

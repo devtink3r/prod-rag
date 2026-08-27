@@ -164,15 +164,22 @@ def ask(
         console.print(ans.text)
         sources, timings = ans.sources, ans.timings
     else:
-        sources, timings = [], {}
+        sources, timings, usage = [], {}, {}
         for event in stream_answer(question, retriever, llm, cfg):
-            if event["type"] in ("token", "refusal"):
+            if event["type"] == "stage":
+                console.print(f"[dim]… {event['data']}[/dim]")
+            elif event["type"] in ("token", "refusal"):
                 print(event["data"], end="", flush=True)
             elif event["type"] == "sources":
                 sources = event["data"]
+            elif event["type"] == "usage":
+                usage = event["data"]
             elif event["type"] == "timings":
                 timings = event["data"]
         print()
+        if usage.get("prompt_tokens") is not None:
+            console.print(f"[dim]tokens: {usage['prompt_tokens']} in / "
+                          f"{usage.get('completion_tokens', 0)} out[/dim]")
     if sources:
         console.print("\n[bold]Sources[/bold]")
         for s in sources:

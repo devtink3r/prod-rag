@@ -38,6 +38,8 @@ class OpenRouterLLM:
             "X-Title": "prod-rag",
         }
 
+    last_usage: dict = {}
+
     def complete(self, messages: list[dict], model: str | None = None,
                  max_tokens: int | None = None) -> str:
         payload = {
@@ -45,6 +47,7 @@ class OpenRouterLLM:
             "messages": messages,
             "temperature": self.cfg.temperature,
             "max_tokens": max_tokens or self.cfg.max_tokens,
+            "usage": {"include": True},
         }
         last_error: Exception | None = None
         with httpx.Client(timeout=120) as client:
@@ -56,7 +59,9 @@ class OpenRouterLLM:
                     continue
                 resp.raise_for_status()
                 try:
-                    return _parse_completion(resp.json())
+                    data = resp.json()
+                    self.last_usage = data.get("usage") or {}
+                    return _parse_completion(data)
                 except OpenRouterError as exc:
                     last_error = exc
                     if "rate" not in str(exc).lower():
@@ -65,7 +70,8 @@ class OpenRouterLLM:
         raise last_error or OpenRouterError("retries exhausted")
 
     def stream(self, messages: list[dict], model: str | None = None) -> Iterator[str]:
-        """Yields content deltas."""
+        """Yields content deltas; token usage lands in self.last_usage at the end."""
+        self.last_usage = {}
         with httpx.Client(timeout=120) as client:
             with client.stream(
                 "POST",
@@ -77,6 +83,7 @@ class OpenRouterLLM:
                     "temperature": self.cfg.temperature,
                     "max_tokens": self.cfg.max_tokens,
                     "stream": True,
+                    "usage": {"include": True},
                 },
             ) as resp:
                 resp.raise_for_status()
@@ -87,8 +94,14 @@ class OpenRouterLLM:
                     if payload.strip() == "[DONE]":
                         break
                     try:
-                        delta = json.loads(payload)["choices"][0]["delta"]
-                    except (json.JSONDecodeError, KeyError, IndexError):
+                        chunk = json.loads(payload)
+                    except json.JSONDecodeError:
+                        continue
+                    if chunk.get("usage"):
+                        self.last_usage = chunk["usage"]
+                    try:
+                        delta = chunk["choices"][0]["delta"]
+                    except (KeyError, IndexError):
                         continue
                     content = delta.get("content")
                     if content:

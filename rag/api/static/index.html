@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>prod-rag</title>
+<style>
+:root{--bg:#0f1117;--panel:#181b24;--panel2:#1f2330;--text:#e6e8ee;--dim:#8b91a3;
+--accent:#6ea8fe;--green:#4ade80;--red:#f87171;--border:#2a2f3e;--radius:10px}
+*{box-sizing:border-box;margin:0}
+body{background:var(--bg);color:var(--text);font:15px/1.6 system-ui,-apple-system,Segoe UI,sans-serif;height:100vh;display:flex;flex-direction:column}
+header{display:flex;align-items:center;gap:14px;padding:10px 18px;border-bottom:1px solid var(--border);background:var(--panel)}
+header h1{font-size:16px;font-weight:600}
+header .badge{font-size:12px;padding:2px 8px;border-radius:99px;border:1px solid var(--border);color:var(--dim)}
+header .badge.ok{color:var(--green);border-color:var(--green)}
+.tabs{display:flex;gap:4px;margin-left:auto}
+.tabs button{background:none;border:1px solid var(--border);color:var(--dim);padding:5px 14px;border-radius:8px;cursor:pointer;font-size:13px}
+.tabs button.active{color:var(--text);background:var(--panel2)}
+#apikey{background:var(--panel2);border:1px solid var(--border);color:var(--text);padding:5px 10px;border-radius:8px;font-size:12px;width:150px}
+main{flex:1;overflow:hidden;display:flex;flex-direction:column}
+.page{flex:1;overflow-y:auto;display:none;flex-direction:column}
+.page.active{display:flex}
+#chatlog{flex:1;overflow-y:auto;padding:20px;max-width:860px;width:100%;margin:0 auto}
+.msg{margin-bottom:18px}
+.msg .who{font-size:12px;color:var(--dim);margin-bottom:4px}
+.msg .bubble{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:12px 16px;white-space:pre-wrap;word-wrap:break-word}
+.msg.user .bubble{background:var(--panel2)}
+.msg .bubble sup{color:var(--accent);cursor:pointer;font-weight:600;padding:0 1px}
+.stages{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0;font-size:12px}
+.stage{padding:3px 10px;border-radius:99px;border:1px solid var(--border);color:var(--dim)}
+.stage.done{color:var(--green);border-color:#2e5c41}
+.stage.current{color:var(--accent);border-color:var(--accent)}
+.stage.current::after{content:"…"}
+.meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;font-size:12px}
+.chip{padding:2px 9px;border-radius:99px;background:var(--panel2);border:1px solid var(--border);color:var(--dim)}
+.sources{margin-top:10px;font-size:13px}
+.source{padding:8px 10px;border-left:3px solid var(--accent);background:var(--panel2);border-radius:6px;margin-top:6px;cursor:pointer}
+.source .loc{color:var(--dim);font-size:12px}
+.source .snip{display:none;margin-top:6px;color:var(--dim);font-size:12px;white-space:pre-wrap}
+.source.open .snip{display:block}
+.fb{margin-top:8px;display:flex;gap:6px}
+.fb button{background:none;border:1px solid var(--border);border-radius:8px;color:var(--dim);cursor:pointer;padding:2px 10px}
+.fb button.sel{color:var(--accent);border-color:var(--accent)}
+#composer{display:flex;gap:8px;padding:14px 20px;border-top:1px solid var(--border);background:var(--panel);max-width:860px;width:100%;margin:0 auto}
+#question{flex:1;background:var(--panel2);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);padding:10px 14px;font-size:15px;resize:none;height:46px}
+#send,#stop{border:none;border-radius:var(--radius);padding:0 20px;font-size:14px;cursor:pointer}
+#send{background:var(--accent);color:#0b0e14}
+#stop{background:var(--red);color:#0b0e14;display:none}
+#docs{padding:24px;max-width:960px;width:100%;margin:0 auto}
+table{width:100%;border-collapse:collapse;font-size:13px;margin-top:12px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border)}
+th{color:var(--dim);font-weight:500}
+.status-indexed{color:var(--green)} .status-failed{color:var(--red)}
+#reingest{background:var(--accent);color:#0b0e14;border:none;border-radius:8px;padding:8px 18px;cursor:pointer;font-size:14px}
+#ingestlog{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-top:14px;font:12px/1.7 ui-monospace,monospace;color:var(--dim);max-height:300px;overflow-y:auto;white-space:pre-wrap;display:none}
+.hint{color:var(--dim);font-size:13px;text-align:center;padding:30px}
+</style>
+</head>
+<body>
+<header>
+  <h1>prod-rag</h1>
+  <span class="badge" id="health">connecting…</span>
+  <input id="apikey" type="password" placeholder="API key" title="X-API-Key (stored in this browser)">
+  <div class="tabs">
+    <button class="active" data-page="chat">Chat</button>
+    <button data-page="docs">Documents</button>
+  </div>
+</header>
+<main>
+  <div class="page active" id="page-chat">
+    <div id="chatlog"><div class="hint">Ask a question about your indexed documents.<br>Answers are grounded and cited — sources and timings shown per answer.</div></div>
+    <div id="composer">
+      <textarea id="question" placeholder="Ask a question… (Enter to send, Shift+Enter for newline)"></textarea>
+      <button id="send">Send</button>
+      <button id="stop">Stop</button>
+    </div>
+  </div>
+  <div class="page" id="page-docs">
+    <div id="docs">
+      <button id="reingest">Run ingest</button>
+      <span class="chip" id="indexinfo"></span>
+      <div id="ingestlog"></div>
+      <div id="doctable"></div>
+    </div>
+  </div>
+</main>
+<script>
+const $=s=>document.querySelector(s);
+const key=()=>localStorage.getItem('rag_api_key')||'';
+$('#apikey').value=key();
+$('#apikey').addEventListener('change',e=>localStorage.setItem('rag_api_key',e.target.value));
+const hdrs=()=>({'Content-Type':'application/json','X-API-Key':key()});
+const history=[];
+let aborter=null;
+
+fetch('/health').then(r=>r.json()).then(h=>{
+  const b=$('#health');
+  b.textContent=h.models_loaded?'ready':'starting…';
+  b.classList.toggle('ok',!!h.models_loaded);
+}).catch(()=>$('#health').textContent='offline');
+
+document.querySelectorAll('.tabs button').forEach(btn=>btn.addEventListener('click',()=>{
+  document.querySelectorAll('.tabs button').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  btn.classList.add('active');
+  $('#page-'+btn.dataset.page).classList.add('active');
+  if(btn.dataset.page==='docs') loadDocs();
+}));
+
+const STAGE_ORDER=['condensing follow-up question','searching (embed + hybrid)','reranking candidates','expanding to parent sections','generating answer'];
+function el(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e;}
+
+function addMsg(who,text){
+  const m=el('div','msg '+who);
+  m.appendChild(el('div','who',who==='user'?'You':'Assistant'));
+  const b=el('div','bubble',text||'');
+  m.appendChild(b);
+  $('#chatlog').appendChild(m);
+  m.scrollIntoView({block:'end'});
+  return m;
+}
+
+function renderCitations(bubble,raw,sources){
+  bubble.innerHTML='';
+  const parts=raw.split(/(\[\d+\])/g);
+  for(const p of parts){
+    const match=p.match(/^\[(\d+)\]$/);
+    if(match){
+      const sup=el('sup','','['+match[1]+']');
+      sup.onclick=()=>{
+        const s=bubble.parentElement.querySelector('.source[data-n="'+match[1]+'"]');
+        if(s){s.classList.add('open');s.scrollIntoView({block:'nearest'});}
+      };
+      bubble.appendChild(sup);
+    } else bubble.appendChild(document.createTextNode(p));
+  }
+}
+
+function fmtMs(ms){return ms>=1000?(ms/1000).toFixed(1)+'s':ms+'ms';}
+const TIMING_LABELS={condense_ms:'condense',embed_query_ms:'embed',hybrid_search_ms:'search',rerank_ms:'rerank',parent_expand_ms:'parents',llm_first_token_ms:'first token',llm_stream_ms:'LLM',total_ms:'total'};
+
+async function ask(){
+  const q=$('#question').value.trim();
+  if(!q||aborter) return;
+  $('#question').value='';
+  const hint=$('#chatlog .hint'); if(hint) hint.remove();
+  addMsg('user',q);
+  const m=addMsg('assistant','');
+  const bubble=m.querySelector('.bubble');
+  const stages=el('div','stages'); m.insertBefore(stages,bubble);
+  const stageEls={};
+  for(const s of STAGE_ORDER){ if(s.startsWith('condensing')&&!history.length) continue;
+    stageEls[s]=el('span','stage',s); stages.appendChild(stageEls[s]); }
+  let raw='',sources=[],timings={},usage=null,currentStage=null;
+  $('#send').style.display='none'; $('#stop').style.display='block';
+  aborter=new AbortController();
+  try{
+    const resp=await fetch('/ask',{method:'POST',headers:hdrs(),signal:aborter.signal,
+      body:JSON.stringify({question:q,history:history.slice(-8),stream:true})});
+    if(!resp.ok){bubble.textContent='Error: '+resp.status+' '+await resp.text();return;}
+    const reader=resp.body.getReader(),dec=new TextDecoder();
+    let buf='';
+    while(true){
+      const {done,value}=await reader.read();
+      if(done) break;
+      buf+=dec.decode(value,{stream:true});
+      let idx;
+      while((idx=buf.indexOf('\n\n'))>=0){
+        const block=buf.slice(0,idx); buf=buf.slice(idx+2);
+        const ev=(block.match(/^event: (.*)$/m)||[])[1];
+        const dataLine=(block.match(/^data: (.*)$/m)||[])[1];
+        if(!ev||dataLine===undefined) continue;
+        const data=JSON.parse(dataLine);
+        if(ev==='stage'){
+          if(currentStage&&stageEls[currentStage]){stageEls[currentStage].className='stage done';}
+          currentStage=data;
+          if(stageEls[data]) stageEls[data].className='stage current';
+        }else if(ev==='token'){
+          if(currentStage&&stageEls[currentStage]){stageEls[currentStage].className='stage done';currentStage=null;}
+          raw+=data; bubble.textContent=raw; m.scrollIntoView({block:'end'});
+        }else if(ev==='refusal'){ raw=data; bubble.textContent=raw;
+        }else if(ev==='sources'){ sources=data;
+        }else if(ev==='usage'){ usage=data;
+        }else if(ev==='timings'){ timings=data;
+        }else if(ev==='error'){ bubble.textContent+='\n\n[error] '+data; }
+      }
+    }
+  }catch(e){ if(e.name!=='AbortError') bubble.textContent+='\n\n[error] '+e.message; }
+  finally{
+    aborter=null; $('#send').style.display='block'; $('#stop').style.display='none';
+    Object.values(stageEls).forEach(s=>{if(s.className.includes('current'))s.className='stage done';});
+    if(sources.length){
+      renderCitations(bubble,raw,sources);
+      const sc=el('div','sources');
+      for(const s of sources){
+        const d=el('div','source'); d.dataset.n=s.n;
+        d.appendChild(el('div','', '['+s.n+'] '+(s.section||s.title)));
+        d.appendChild(el('div','loc',(s.pages||'')+'  ·  score '+s.score));
+        d.appendChild(el('div','snip',s.snippet||''));
+        d.onclick=()=>d.classList.toggle('open');
+        sc.appendChild(d);
+      }
+      m.appendChild(sc);
+    }
+    const meta=el('div','meta');
+    for(const [k,label] of Object.entries(TIMING_LABELS))
+      if(timings[k]!==undefined) meta.appendChild(el('span','chip',label+' '+fmtMs(timings[k])));
+    if(usage){
+      if(usage.prompt_tokens!=null) meta.appendChild(el('span','chip','tokens '+usage.prompt_tokens+'→'+(usage.completion_tokens||0)));
+      if(usage.cost!=null) meta.appendChild(el('span','chip','$'+Number(usage.cost).toFixed(5)));
+    }
+    if(meta.children.length) m.appendChild(meta);
+    const fb=el('div','fb');
+    for(const v of ['up','down']){
+      const btn=el('button','',v==='up'?'👍':'👎');
+      btn.onclick=()=>{fb.querySelectorAll('button').forEach(b=>b.classList.remove('sel'));btn.classList.add('sel');
+        fetch('/feedback',{method:'POST',headers:hdrs(),body:JSON.stringify({question:q,answer:raw,verdict:v})});};
+      fb.appendChild(btn);
+    }
+    m.appendChild(fb);
+    if(raw){history.push({role:'user',content:q});history.push({role:'assistant',content:raw});}
+    m.scrollIntoView({block:'end'});
+  }
+}
+$('#send').onclick=ask;
+$('#stop').onclick=()=>aborter&&aborter.abort();
+$('#question').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();ask();}});
+
+async function loadDocs(){
+  try{
+    const r=await fetch('/documents',{headers:hdrs()});
+    const d=await r.json();
+    $('#indexinfo').textContent=(d.index_points!=null?d.index_points+' vectors indexed':'');
+    let html='<table><tr><th>Document</th><th>Status</th><th>Pages</th><th>Chunks</th><th>Indexed at</th></tr>';
+    for(const doc of d.documents){
+      const name=doc.source_path.split('/').pop();
+      html+='<tr><td title="'+doc.source_path+'">'+name+'</td><td class="status-'+doc.status+'">'+doc.status+(doc.error?' — '+doc.error:'')+'</td><td>'+(doc.num_pages??'')+'</td><td>'+(doc.chunk_count??'')+'</td><td>'+(doc.last_indexed_at?doc.last_indexed_at.slice(0,19):'')+'</td></tr>';
+    }
+    $('#doctable').innerHTML=html+'</table>';
+  }catch(e){ $('#doctable').innerHTML='<div class="hint">Could not load documents: '+e.message+'</div>'; }
+}
+
+$('#reingest').onclick=async()=>{
+  await fetch('/ingest',{method:'POST',headers:hdrs()});
+  $('#ingestlog').style.display='block';
+  const poll=setInterval(async()=>{
+    const s=await(await fetch('/ingest/status',{headers:hdrs()})).json();
+    $('#ingestlog').textContent=s.log.join('\n')+(s.report?'\n\nDONE: '+JSON.stringify(s.report):'');
+    $('#ingestlog').scrollTop=$('#ingestlog').scrollHeight;
+    if(!s.running){clearInterval(poll);loadDocs();}
+  },2000);
+};
+</script>
+</body>
+</html>

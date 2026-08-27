@@ -100,9 +100,11 @@ class Retriever:
             for p in res.points
         ]
 
-    def retrieve(self, query: str) -> RetrievalResult:
+    def retrieve(self, query: str, on_stage=None) -> RetrievalResult:
+        stage = on_stage or (lambda s: None)
         timings: dict[str, int] = {}
         t = time.time()
+        stage("searching (embed + hybrid)")
         candidates = self._hybrid_search(query)
         if hasattr(self, "_t_embed"):  # real search reports embed/search split
             timings["embed_query_ms"] = self._t_embed
@@ -113,6 +115,7 @@ class Retriever:
             return RetrievalResult([], no_answer=True, top_score=0.0, timings=timings)
 
         t = time.time()
+        stage("reranking candidates")
         scores = self.reranker.rerank(query, [c.text for c in candidates])
         timings["rerank_ms"] = _ms(t)
         for c, s in zip(candidates, scores):
@@ -126,6 +129,7 @@ class Retriever:
                                    top_score=candidates[0].rerank_score, timings=timings)
 
         t = time.time()
+        stage("expanding to parent sections")
         blocks = self._expand_to_parents(top)
         blocks = self._apply_token_budget(blocks)
         timings["parent_expand_ms"] = _ms(t)

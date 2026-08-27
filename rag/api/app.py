@@ -5,15 +5,19 @@ RAG_API_KEY is set.
 """
 
 import json
+import threading
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from rag.config import load_config, load_secrets
 
 _state: dict = {}
+_ingest = {"running": False, "log": [], "report": None}
+_ingest_lock = threading.Lock()
 
 
 @asynccontextmanager
@@ -48,6 +52,65 @@ class AskRequest(BaseModel):
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok", "models_loaded": "retriever" in _state}
+
+
+@app.get("/", response_class=HTMLResponse)
+def ui() -> str:
+    return (Path(__file__).parent / "static" / "index.html").read_text(encoding="utf-8")
+
+
+@app.get("/documents", dependencies=[Depends(check_api_key)])
+def documents() -> dict:
+    docs = _state["retriever"].registry.list_documents()
+    try:
+        points = _state["retriever"].store.count()
+    except Exception:
+        points = None
+    return {"documents": docs, "index_points": points}
+
+
+@app.post("/ingest", dependencies=[Depends(check_api_key)])
+def trigger_ingest() -> dict:
+    with _ingest_lock:
+        if _ingest["running"]:
+            return {"started": False, "reason": "already running"}
+        _ingest.update(running=True, log=[], report=None)
+
+    def _run() -> None:
+        from rag.ingestion.pipeline import run_ingest
+
+        try:
+            report = run_ingest(load_config(), load_secrets(),
+                                progress=lambda m: _ingest["log"].append(str(m)))
+            _ingest["report"] = report.__dict__
+        except Exception as exc:
+            _ingest["log"].append(f"FAILED: {exc}")
+        finally:
+            _ingest["running"] = False
+
+    threading.Thread(target=_run, daemon=True).start()
+    return {"started": True}
+
+
+@app.get("/ingest/status", dependencies=[Depends(check_api_key)])
+def ingest_status() -> dict:
+    return {"running": _ingest["running"], "log": _ingest["log"][-30:],
+            "report": _ingest["report"]}
+
+
+class FeedbackRequest(BaseModel):
+    question: str = Field(max_length=2000)
+    answer: str = Field(max_length=20000)
+    verdict: str = Field(pattern="^(up|down)$")
+
+
+@app.post("/feedback", dependencies=[Depends(check_api_key)])
+def feedback(req: FeedbackRequest) -> dict:
+    from rag.observability.tracer import record
+
+    record({"kind": "feedback", "verdict": req.verdict,
+            "question": req.question, "answer": req.answer[:1000]})
+    return {"ok": True}
 
 
 @app.post("/ask", dependencies=[Depends(check_api_key)])

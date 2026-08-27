@@ -19,6 +19,7 @@ class Source:
     pages: str
     source_path: str
     score: float
+    snippet: str = ""
 
 
 @dataclass
@@ -53,6 +54,7 @@ def _sources_from_blocks(blocks) -> list[Source]:
         out.append(Source(
             n=i, title=b.title, section=" > ".join(b.section_path),
             pages=pages, source_path=b.source_path, score=round(b.score, 3),
+            snippet=b.text[:600],
         ))
     return out
 
@@ -118,20 +120,55 @@ def stream_answer(
 ) -> Iterator[dict]:
     """Yields events: {'type': 'token', 'data': str} then {'type': 'sources', ...}
     or a single {'type': 'refusal'} event."""
+    import queue as queue_mod
+    import threading
+
     t0 = time.time()
     t = time.time()
-    q = condense_question(question, history or [], llm, cfg)
     timings = {}
     if history:
+        yield {"type": "stage", "data": "condensing follow-up question"}
+        q = condense_question(question, history, llm, cfg)
         timings["condense_ms"] = int((time.time() - t) * 1000)
-    result = retriever.retrieve(q)
+    else:
+        q = question
+
+    # run retrieval in a thread so stage events stream out live
+    stage_q: queue_mod.Queue = queue_mod.Queue()
+    holder: dict = {}
+
+    def _run() -> None:
+        try:
+            try:
+                holder["result"] = retriever.retrieve(q, on_stage=stage_q.put)
+            except TypeError:  # fakes/tests without on_stage support
+                holder["result"] = retriever.retrieve(q)
+        except Exception as exc:
+            holder["error"] = exc
+        finally:
+            stage_q.put(None)
+
+    worker = threading.Thread(target=_run, daemon=True)
+    worker.start()
+    while True:
+        item = stage_q.get()
+        if item is None:
+            break
+        yield {"type": "stage", "data": item}
+    worker.join()
+    if "error" in holder:
+        raise holder["error"]
+    result = holder["result"]
     timings.update(result.timings)
+
     if result.no_answer:
         timings["total_ms"] = int((time.time() - t0) * 1000)
         _trace(q, result, REFUSAL_TEXT, set(), timings, cfg)
         yield {"type": "refusal", "data": REFUSAL_TEXT}
         yield {"type": "timings", "data": timings}
         return
+
+    yield {"type": "stage", "data": "generating answer"}
     parts: list[str] = []
     t = time.time()
     first_token_ms = None
@@ -148,4 +185,11 @@ def stream_answer(
     timings["total_ms"] = int((time.time() - t0) * 1000)
     _trace(q, result, "".join(parts), cited, timings, cfg)
     yield {"type": "sources", "data": sources}
+    usage = getattr(llm, "last_usage", {}) or {}
+    if usage:
+        yield {"type": "usage", "data": {
+            "prompt_tokens": usage.get("prompt_tokens"),
+            "completion_tokens": usage.get("completion_tokens"),
+            "cost": usage.get("cost"),
+        }}
     yield {"type": "timings", "data": timings}
