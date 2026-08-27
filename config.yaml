@@ -53,6 +53,7 @@ llm:
   utility_model: stealth/ox-alpha
   temperature: 0.1
   max_tokens: 2048
+  reasoning_effort: low   # ox-alpha defaults to max-effort thinking (minutes); low is plenty for grounded QA
 
 api:
   host: 0.0.0.0

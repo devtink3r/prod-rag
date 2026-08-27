@@ -71,6 +71,7 @@ class LLMConfig(BaseModel):
     utility_model: str = "deepseek/deepseek-v4-flash"
     temperature: float = 0.1
     max_tokens: int = 2048
+    reasoning_effort: str = "low"  # for reasoning models; "" = provider default
 
 
 class APIConfig(BaseModel):

@@ -25,6 +25,8 @@ class OpenRouterError(RuntimeError):
 from rag.config import LLMConfig, Secrets
 
 BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
+# generous read timeout: reasoning models think before answering
+TIMEOUT = httpx.Timeout(connect=15, read=300, write=30, pool=30)
 
 
 class OpenRouterLLM:
@@ -49,8 +51,10 @@ class OpenRouterLLM:
             "max_tokens": max_tokens or self.cfg.max_tokens,
             "usage": {"include": True},
         }
+        if self.cfg.reasoning_effort:
+            payload["reasoning"] = {"effort": self.cfg.reasoning_effort}
         last_error: Exception | None = None
-        with httpx.Client(timeout=120) as client:
+        with httpx.Client(timeout=TIMEOUT) as client:
             for attempt in range(_RETRIES):
                 resp = client.post(BASE_URL, headers=self.headers, json=payload)
                 if resp.status_code == 429:  # rate limited (free tier especially)
@@ -72,19 +76,22 @@ class OpenRouterLLM:
     def stream(self, messages: list[dict], model: str | None = None) -> Iterator[str]:
         """Yields content deltas; token usage lands in self.last_usage at the end."""
         self.last_usage = {}
-        with httpx.Client(timeout=120) as client:
+        payload = {
+            "model": model or self.cfg.answer_model,
+            "messages": messages,
+            "temperature": self.cfg.temperature,
+            "max_tokens": self.cfg.max_tokens,
+            "stream": True,
+            "usage": {"include": True},
+        }
+        if self.cfg.reasoning_effort:
+            payload["reasoning"] = {"effort": self.cfg.reasoning_effort}
+        with httpx.Client(timeout=TIMEOUT) as client:
             with client.stream(
                 "POST",
                 BASE_URL,
                 headers=self.headers,
-                json={
-                    "model": model or self.cfg.answer_model,
-                    "messages": messages,
-                    "temperature": self.cfg.temperature,
-                    "max_tokens": self.cfg.max_tokens,
-                    "stream": True,
-                    "usage": {"include": True},
-                },
+                json=payload,
             ) as resp:
                 resp.raise_for_status()
                 for line in resp.iter_lines():
